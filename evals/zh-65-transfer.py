@@ -49,8 +49,14 @@ content = TARGET.read_text(encoding="utf-8")
 if "if not folders.exists():\n" in content and "== 0" not in content:
     print(f"[ZH-65] Already patched (exists fix): {TARGET}")
 else:
-    old_1 = "    if not folders.exists() == 0:\n        raise Exception"
-    new_1 = "    if not folders.exists():\n        raise Exception"
+    old_1 = (
+        '    if not folders.exists() == 0:\n'
+        '        raise Exception("No valid folders were passed into folder_ids")\n'
+    )
+    new_1 = (
+        '    if not folders.exists():\n'
+        '        raise Exception("No valid folders were passed into folder_ids")\n'
+    )
 
     if old_1 not in content:
         print("[ZH-65] ERROR: exists() anchor not found. File may have diverged.")

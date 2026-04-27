@@ -1,93 +1,120 @@
 #!/usr/bin/env python3
-# zh-45-transfer.py
-# ZH-45: Add xclass_level to Folder model + API
-# Run from repo root on the runtime machine (ENCHS-PW-GenAI-Backend).
-# Safe to run twice — writes are idempotent.
-# Cross-platform replacement for zh-45-transfer.sh
+"""ZH-45: Add xclass_level to Folder model + API (surgical patches).
 
-import subprocess
-import sys
-import shutil
+Run from Django project root (folder containing manage.py).
+
+Does NOT copy whole files from a sibling backend/ tree — only edits targets.
+"""
+
 from pathlib import Path
 
+BACKEND = Path.cwd()
 
-def git(*args):
-    subprocess.run(["git", *args], check=True)
+MODELS_PATH = BACKEND / "app_retrieval" / "models.py"
+MIGRATION_PATH = (
+    BACKEND / "app_retrieval" / "migrations" / "0028_folder_xclass_level.py"
+)
+FOLDERS_VIEW_PATH = BACKEND / "app_retrieval" / "views" / "folders.py"
+
+XCLASS_FIELD_SNIPPET = '''
+    xclass_level = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        help_text="Export control classification level (e.g. EAR99, CUI, ECCN)",
+    )
+'''
+
+MIGRATION_BODY = '''from django.db import migrations, models
 
 
-def git_or(*args):
-    return subprocess.run(["git", *args]).returncode == 0
+class Migration(migrations.Migration):
+
+    dependencies = [
+        ("app_retrieval", "0027_asset_knowledge_graph_contentitem_kg_retries_and_more"),
+    ]
+
+    operations = [
+        migrations.AddField(
+            model_name="folder",
+            name="xclass_level",
+            field=models.CharField(
+                blank=True,
+                help_text="Export control classification level (e.g. EAR99, CUI, ECCN)",
+                max_length=50,
+                null=True,
+            ),
+        ),
+    ]
+'''
 
 
-def ensure(path, content):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-
-
-def touch(path):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.touch()
-
-
-def patch(path, old, new, label="patch"):
-    src = path.read_text(encoding="utf-8")
-    if old not in src:
-        print(f"[SKIP] {label}")
+def patch_models() -> None:
+    text = MODELS_PATH.read_text(encoding="utf-8")
+    if "xclass_level" in text:
+        print("[ZH-45] models.py already has xclass_level")
         return
-    path.write_text(src.replace(old, new, 1), encoding="utf-8")
-    print(f"[OK] {label}")
+    anchor = "    processing_flag = models.TextField(default=\"default\", null=False, blank=False)\n"
+    if anchor not in text:
+        raise SystemExit("[ZH-45] ERROR: could not find processing_flag anchor in models.py")
+    insert = anchor + XCLASS_FIELD_SNIPPET + "\n"
+    MODELS_PATH.write_text(text.replace(anchor, insert, 1), encoding="utf-8")
+    print("[ZH-45] Patched app_retrieval/models.py (xclass_level field)")
 
 
-def append_if_missing(path, line):
-    text = path.read_text(encoding="utf-8") if path.exists() else ""
-    if line.strip() not in text:
-        with path.open("a", encoding="utf-8") as f:
-            f.write(line if line.endswith("\n") else line + "\n")
-        print(f"[OK] Appended: {line.strip()}")
-    else:
-        print(f"[SKIP] Already present: {line.strip()}")
+def write_migration() -> None:
+    MIGRATION_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if MIGRATION_PATH.exists():
+        print("[ZH-45] Migration already exists:", MIGRATION_PATH.name)
+        return
+    MIGRATION_PATH.write_text(MIGRATION_BODY.rstrip() + "\n", encoding="utf-8")
+    print("[ZH-45] Wrote", MIGRATION_PATH)
 
 
-# ---------------------------------------------------------------------------
-# Resolve source and destination directories.
-# The bash script derives SCRIPT_DIR from the location of the .sh file,
-# uses SRC = SCRIPT_DIR/backend, and DEST defaults to SRC unless overridden
-# by the first positional argument ($1).
-#
-# Here we replicate that logic: SCRIPT_DIR is the directory of this .py file,
-# SRC is SCRIPT_DIR/backend, and DEST defaults to SRC unless sys.argv[1] is given.
-# ---------------------------------------------------------------------------
-SCRIPT_DIR = Path(__file__).resolve().parent
-SRC = SCRIPT_DIR / "backend"
-DEST = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else SRC
+def patch_folders_view() -> None:
+    text = FOLDERS_VIEW_PATH.read_text(encoding="utf-8")
+    if '"xclass_level"' in text or "'xclass_level'" in text:
+        print("[ZH-45] folders.py already exposes xclass_level")
+        return
 
-print(f"[ZH-45] Transferring xclass_level changes to: {DEST}")
+    folder_anchor = '"kg_status": folder.knowledge_graph.status,'
+    folder_repl = (
+        '"kg_status": folder.knowledge_graph.status,\n'
+        '                        "xclass_level": getattr(folder, "xclass_level", None),'
+    )
+    n = text.count(folder_anchor)
+    if n != 2:
+        raise SystemExit(
+            f"[ZH-45] ERROR: expected 2× {folder_anchor!r}, found {n}"
+        )
+    text = text.replace(folder_anchor, folder_repl)
 
-# ---------------------------------------------------------------------------
-# 1. Folder model — add xclass_level field
-# ---------------------------------------------------------------------------
-src_models = SRC / "app_retrieval" / "models.py"
-dst_models = DEST / "app_retrieval" / "models.py"
-dst_models.parent.mkdir(parents=True, exist_ok=True)
-shutil.copy2(src_models, dst_models)
+    post_anchor = '"kg_status": new_folder.knowledge_graph.status,'
+    post_repl = (
+        '"kg_status": new_folder.knowledge_graph.status,\n'
+        '                "xclass_level": getattr(new_folder, "xclass_level", None),'
+    )
+    if post_anchor not in text:
+        raise SystemExit("[ZH-45] ERROR: new_folder kg_status anchor not found")
+    text = text.replace(post_anchor, post_repl, 1)
 
-# ---------------------------------------------------------------------------
-# 2. Migration
-# ---------------------------------------------------------------------------
-src_migration = SRC / "app_retrieval" / "migrations" / "0028_folder_xclass_level.py"
-dst_migration = DEST / "app_retrieval" / "migrations" / "0028_folder_xclass_level.py"
-dst_migration.parent.mkdir(parents=True, exist_ok=True)
-shutil.copy2(src_migration, dst_migration)
+    FOLDERS_VIEW_PATH.write_text(text, encoding="utf-8")
+    print("[ZH-45] Patched app_retrieval/views/folders.py")
 
-# ---------------------------------------------------------------------------
-# 3. FolderView — exposes xclass_level in GET /ws/folders/
-# ---------------------------------------------------------------------------
-src_folders = SRC / "app_retrieval" / "views" / "folders.py"
-dst_folders = DEST / "app_retrieval" / "views" / "folders.py"
-dst_folders.parent.mkdir(parents=True, exist_ok=True)
-shutil.copy2(src_folders, dst_folders)
 
-print("[ZH-45] Done. Verify with:")
-print("  python manage.py migrate")
-print("  python manage.py check")
-print("  # GET /ws/folders/ should return xclass_level: null for existing folders")
+def main() -> None:
+    for p in (MODELS_PATH, FOLDERS_VIEW_PATH):
+        if not p.is_file():
+            raise SystemExit(f"[ZH-45] ERROR: {p} not found. Run from Django project root.")
+
+    patch_models()
+    write_migration()
+    patch_folders_view()
+
+    print("[ZH-45] Done. Verify with:")
+    print("  python manage.py migrate")
+    print("  python manage.py check")
+
+
+if __name__ == "__main__":
+    main()

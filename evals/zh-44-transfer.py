@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 BRANCH = "zh-44-message-sources"
-BACKEND = Path.cwd() / "ENCHS-PW-GenAI-Backend"
+BACKEND = Path.cwd()
 TARGET = BACKEND / "app_chatbot" / "views" / "chatstream.py"
 TESTS_DIR = BACKEND / "tests" / "app_chatbot"
 

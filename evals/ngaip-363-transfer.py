@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 BRANCH = "ngaip-363-rag-evaluation-harness"
-BACKEND = Path.cwd() / "ENCHS-PW-GenAI-Backend"
+BACKEND = Path.cwd()
 
 
 def read_text_compat(path: Path) -> str:

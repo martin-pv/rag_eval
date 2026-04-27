@@ -47,7 +47,7 @@ def patch(path, old, new, label="patch"):
 # Configuration
 # ---------------------------------------------------------------------------
 
-BACKEND = Path.cwd() / "ENCHS-PW-GenAI-Backend"
+BACKEND = Path.cwd()
 BRANCH  = "zh-35-genai-auth"
 
 

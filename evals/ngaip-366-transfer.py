@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 BRANCH = "ngaip-366-response-accuracy-metric"
-BACKEND = Path.cwd() / "ENCHS-PW-GenAI-Backend"
+BACKEND = Path.cwd()
 
 
 def git(*args):

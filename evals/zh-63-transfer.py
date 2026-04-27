@@ -50,7 +50,7 @@ def patch(path, old, new, label="patch"):
 # Configuration
 # ---------------------------------------------------------------------------
 
-BACKEND = Path.cwd() / "ENCHS-PW-GenAI-Backend"
+BACKEND = Path.cwd()
 BRANCH  = "zh-63-cors-prod"
 
 # Confirm exact AutoSAM prod origin with Dave before running.

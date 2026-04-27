@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 BRANCH = "ngaip-415-metrics-success-criteria"
-BACKEND = Path.cwd() / "ENCHS-PW-GenAI-Backend"
+BACKEND = Path.cwd()
 
 
 def git(*args):

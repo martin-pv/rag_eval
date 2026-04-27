@@ -14,7 +14,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-BACKEND = Path.cwd() / "ENCHS-PW-GenAI-Backend"
+BACKEND = Path.cwd()
 
 
 def git(*args):

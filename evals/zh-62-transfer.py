@@ -4,7 +4,7 @@
 Ticket: Hybrid keyword / semantic RAG routing
 
 What this does:
-  1. Patches app_retrieval/views/search.py
+  1. Patches app_retrieval/data_assets/search.py
      - adds _normalize_scores() + hybrid_search_folder() before chunk_reranking
        (or appends to end if chunk_reranking not found)
   2. Patches app_retrieval/views_search.py
@@ -22,7 +22,7 @@ from pathlib import Path
 BRANCH = "zh-62-hybrid-rag"
 BACKEND = Path.cwd()
 
-SEARCH_PY = BACKEND / "app_retrieval" / "views" / "search.py"
+SEARCH_PY = BACKEND / "app_retrieval" / "data_assets" / "search.py"
 VIEWS_SEARCH_PY = BACKEND / "app_retrieval" / "views_search.py"
 TESTS_DIR = BACKEND / "tests" / "app_retrieval"
 TEST_FILE = TESTS_DIR / "test_hybrid_search.py"
@@ -38,7 +38,7 @@ def git_or(*args):
 
 
 def patch_search_py():
-    """Add _normalize_scores + hybrid_search_folder to views/search.py."""
+    """Add _normalize_scores + hybrid_search_folder to data_assets/search.py."""
     if not SEARCH_PY.exists():
         print(f"[ZH-62] ERROR: {SEARCH_PY} not found. Run from ENCHS-PW-GenAI-Backend/ root.")
         sys.exit(1)
@@ -63,18 +63,18 @@ def _normalize_scores(results: list[dict]) -> list[dict]:
 
 
 async def hybrid_search_folder(request, search_query: str, folder, top_k: int = 5) -> list[dict]:
-    """Merge semantic + keyword results, normalize scores, dedupe by (asset_id, start_lab)."""
+    """Merge semantic + keyword results, normalize scores, dedupe by (asset_id, start_idx)."""
     import asyncio
     semantic, keyword = await asyncio.gather(
-        search_folder(request, search_query, folder, target_total_k_results=top_k),
-        keyword_search_folder(request, search_query, folder, k=top_k),
+        search_folder(request, search_query, folder, target_total_n_results=top_k),
+        keyword_search_folder(request, search_query, folder, target_total_n_results=top_k),
     )
     merged: dict = {}
     for result in _normalize_scores(keyword):
-        key = (result.get("asset_id"), result.get("start_lab"))
+        key = (result.get("asset_id"), result.get("start_idx"))
         merged[key] = result
     for result in _normalize_scores(semantic):
-        key = (result.get("asset_id"), result.get("start_lab"))
+        key = (result.get("asset_id"), result.get("start_idx"))
         if key in merged:
             merged[key]["_norm_score"] = max(merged[key]["_norm_score"], result["_norm_score"])
         else:
@@ -107,7 +107,7 @@ def patch_views_search_py():
         print(f"[ZH-62] hybrid_search_folder already present in: {VIEWS_SEARCH_PY}")
         return
 
-    existing = re.search(r"(from app_retrieval\.views\.search import[^\n]+)", content)
+    existing = re.search(r"(from app_retrieval\.data_assets\.search import[^\n]+)", content)
     if existing:
         content = content.replace(
             existing.group(1),
@@ -115,7 +115,9 @@ def patch_views_search_py():
             1,
         )
     else:
-        content = "from app_retrieval.views.search import hybrid_search_folder\n" + content
+        content = (
+            "from app_retrieval.data_assets.search import hybrid_search_folder\n" + content
+        )
 
     VIEWS_SEARCH_PY.write_text(content, encoding="utf-8")
     print(f"[ZH-62] Patched (import): {VIEWS_SEARCH_PY}")
@@ -143,7 +145,7 @@ Run unit tests (no DB):
 from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
-from app_retrieval.views.search import _normalize_scores
+from app_retrieval.data_assets.search import _normalize_scores
 
 
 class TestNormalizeScores:
@@ -164,27 +166,27 @@ class TestNormalizeScores:
 
 class TestHybridSearchFolder:
     def _r(self, aid, slab, score):
-        return {"asset_id": aid, "start_lab": slab, "score": score, "content": "x", "file_name": "f.pdf"}
+        return {"asset_id": aid, "start_idx": slab, "score": score, "content": "x", "file_name": "f.pdf"}
 
     @pytest.mark.asyncio
     async def test_combines_both_paths(self):
         sem = [self._r(1, 0, 0.9), self._r(2, 0, 0.7)]
         kw = [self._r(3, 0, 0.8)]
         with (
-            patch("app_retrieval.views.search.search_folder", new=AsyncMock(return_value=sem)),
-            patch("app_retrieval.views.search.keyword_search_folder", new=AsyncMock(return_value=kw)),
+            patch("app_retrieval.data_assets.search.search_folder", new=AsyncMock(return_value=sem)),
+            patch("app_retrieval.data_assets.search.keyword_search_folder", new=AsyncMock(return_value=kw)),
         ):
-            from app_retrieval.views.search import hybrid_search_folder
+            from app_retrieval.data_assets.search import hybrid_search_folder
             results = await hybrid_search_folder(MagicMock(), "q", MagicMock(), top_k=5)
         assert {r["asset_id"] for r in results} == {1, 2, 3}
 
     @pytest.mark.asyncio
     async def test_dedupes_same_chunk(self):
         with (
-            patch("app_retrieval.views.search.search_folder", new=AsyncMock(return_value=[self._r(1, 100, 0.9)])),
-            patch("app_retrieval.views.search.keyword_search_folder", new=AsyncMock(return_value=[self._r(1, 100, 0.6)])),
+            patch("app_retrieval.data_assets.search.search_folder", new=AsyncMock(return_value=[self._r(1, 100, 0.9)])),
+            patch("app_retrieval.data_assets.search.keyword_search_folder", new=AsyncMock(return_value=[self._r(1, 100, 0.6)])),
         ):
-            from app_retrieval.views.search import hybrid_search_folder
+            from app_retrieval.data_assets.search import hybrid_search_folder
             results = await hybrid_search_folder(MagicMock(), "q", MagicMock(), top_k=10)
         assert len(results) == 1
 
@@ -193,10 +195,10 @@ class TestHybridSearchFolder:
         sem = [self._r(1, 0, 0.3), self._r(2, 0, 0.9)]
         kw = [self._r(3, 0, 0.6)]
         with (
-            patch("app_retrieval.views.search.search_folder", new=AsyncMock(return_value=sem)),
-            patch("app_retrieval.views.search.keyword_search_folder", new=AsyncMock(return_value=kw)),
+            patch("app_retrieval.data_assets.search.search_folder", new=AsyncMock(return_value=sem)),
+            patch("app_retrieval.data_assets.search.keyword_search_folder", new=AsyncMock(return_value=kw)),
         ):
-            from app_retrieval.views.search import hybrid_search_folder
+            from app_retrieval.data_assets.search import hybrid_search_folder
             results = await hybrid_search_folder(MagicMock(), "q", MagicMock(), top_k=10)
         ns = [r["_norm_score"] for r in results]
         assert ns == sorted(ns, reverse=True)
@@ -206,20 +208,20 @@ class TestHybridSearchFolder:
         sem = [self._r(i, 0, i/10) for i in range(1, 8)]
         kw = [self._r(i, 100, i/10) for i in range(8, 15)]
         with (
-            patch("app_retrieval.views.search.search_folder", new=AsyncMock(return_value=sem)),
-            patch("app_retrieval.views.search.keyword_search_folder", new=AsyncMock(return_value=kw)),
+            patch("app_retrieval.data_assets.search.search_folder", new=AsyncMock(return_value=sem)),
+            patch("app_retrieval.data_assets.search.keyword_search_folder", new=AsyncMock(return_value=kw)),
         ):
-            from app_retrieval.views.search import hybrid_search_folder
+            from app_retrieval.data_assets.search import hybrid_search_folder
             results = await hybrid_search_folder(MagicMock(), "q", MagicMock(), top_k=5)
         assert len(results) == 5
 
     @pytest.mark.asyncio
     async def test_empty_both_paths(self):
         with (
-            patch("app_retrieval.views.search.search_folder", new=AsyncMock(return_value=[])),
-            patch("app_retrieval.views.search.keyword_search_folder", new=AsyncMock(return_value=[])),
+            patch("app_retrieval.data_assets.search.search_folder", new=AsyncMock(return_value=[])),
+            patch("app_retrieval.data_assets.search.keyword_search_folder", new=AsyncMock(return_value=[])),
         ):
-            from app_retrieval.views.search import hybrid_search_folder
+            from app_retrieval.data_assets.search import hybrid_search_folder
             results = await hybrid_search_folder(MagicMock(), "q", MagicMock(), top_k=5)
         assert results == []
 
@@ -228,12 +230,12 @@ class TestHybridSearchFolder:
         sem = [self._r(1, 0, 0.8), self._r(1, 100, 0.6)]
         kw = [self._r(1, 0, 0.5), self._r(2, 0, 0.9)]
         with (
-            patch("app_retrieval.views.search.search_folder", new=AsyncMock(return_value=sem)),
-            patch("app_retrieval.views.search.keyword_search_folder", new=AsyncMock(return_value=kw)),
+            patch("app_retrieval.data_assets.search.search_folder", new=AsyncMock(return_value=sem)),
+            patch("app_retrieval.data_assets.search.keyword_search_folder", new=AsyncMock(return_value=kw)),
         ):
-            from app_retrieval.views.search import hybrid_search_folder
+            from app_retrieval.data_assets.search import hybrid_search_folder
             results = await hybrid_search_folder(MagicMock(), "q", MagicMock(), top_k=10)
-        keys = [(r["asset_id"], r.get("start_lab")) for r in results]
+        keys = [(r["asset_id"], r.get("start_idx")) for r in results]
         assert len(keys) == len(set(keys))
 
 
@@ -241,15 +243,15 @@ class TestHybridSearchFolder:
 class TestHybridIntegration:
     @pytest.mark.asyncio
     async def test_returns_results(self, folder_with_chunks):
-        from app_retrieval.views.search import hybrid_search_folder
+        from app_retrieval.data_assets.search import hybrid_search_folder
         results = await hybrid_search_folder(MagicMock(), "engine", folder_with_chunks, top_k=5)
         assert len(results) > 0 and all("content" in r for r in results)
 
     @pytest.mark.asyncio
     async def test_no_duplicate_keys(self, folder_with_chunks):
-        from app_retrieval.views.search import hybrid_search_folder
+        from app_retrieval.data_assets.search import hybrid_search_folder
         results = await hybrid_search_folder(MagicMock(), "test", folder_with_chunks, top_k=10)
-        keys = [(r.get("asset_id"), r.get("start_lab")) for r in results]
+        keys = [(r.get("asset_id"), r.get("start_idx")) for r in results]
         assert len(keys) == len(set(keys))
 '''
     TEST_FILE.write_text(content, encoding="utf-8")
