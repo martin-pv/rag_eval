@@ -1,19 +1,67 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/usr/bin/env python3
+# folder-keyword-search-transfer.py
+# Ticket: Folder keyword search — adds ?q= filter to FolderView
+# Run from root of ENCHS-PW-GenAI-Backend/ (where manage.py lives).
+# Idempotent: safe to run multiple times.
+# Cross-platform replacement for folder-keyword-search-transfer.sh
 
-echo "[folder-search] Starting transfer..."
+import subprocess
+import sys
+from pathlib import Path
+
+
+def git(*args):
+    subprocess.run(["git", *args], check=True)
+
+
+def git_or(*args):
+    return subprocess.run(["git", *args]).returncode == 0
+
+
+def ensure(path, content):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def touch(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch()
+
+
+def patch(path, old, new, label="patch"):
+    src = path.read_text(encoding="utf-8")
+    if old not in src:
+        print(f"[SKIP] {label}")
+        return
+    path.write_text(src.replace(old, new, 1), encoding="utf-8")
+    print(f"[OK] {label}")
+
+
+def append_if_missing(path, line):
+    text = path.read_text(encoding="utf-8") if path.exists() else ""
+    if line.strip() not in text:
+        with path.open("a", encoding="utf-8") as f:
+            f.write(line if line.endswith("\n") else line + "\n")
+        print(f"[OK] Appended: {line.strip()}")
+    else:
+        print(f"[SKIP] Already present: {line.strip()}")
+
+
+# ---------------------------------------------------------------------------
+# Resolve CWD — script must be run from the backend project root
+# (where manage.py lives).
+# ---------------------------------------------------------------------------
+ROOT = Path.cwd()
+
+print("[folder-search] Starting transfer...")
 
 # ---------------------------------------------------------------------------
 # Write app_retrieval/views/folders.py
 # If the file already has FolderView with ?q= filter, skip.
 # ---------------------------------------------------------------------------
-TARGET="app_retrieval/views/folders.py"
+TARGET = ROOT / "app_retrieval" / "views" / "folders.py"
 
-if grep -q "folder_name__icontains" "$TARGET" 2>/dev/null; then
-    echo "[folder-search] Already patched: $TARGET"
-else
-    echo "[folder-search] Writing: $TARGET"
-    cat > "$TARGET" <<'PYEOF'
+FOLDERS_VIEW_CONTENT = """\
 import logging
 
 from django.contrib.auth.models import User
@@ -48,21 +96,26 @@ class FolderView(APIView):
         ]
 
         return Response({"folders": folders})
-PYEOF
-fi
+"""
+
+existing_text = TARGET.read_text(encoding="utf-8") if TARGET.exists() else ""
+if "folder_name__icontains" in existing_text:
+    print(f"[folder-search] Already patched: {TARGET}")
+else:
+    print(f"[folder-search] Writing: {TARGET}")
+    ensure(TARGET, FOLDERS_VIEW_CONTENT)
 
 # ---------------------------------------------------------------------------
 # Write tests
 # ---------------------------------------------------------------------------
-mkdir -p tests/app_retrieval
-touch tests/__init__.py tests/app_retrieval/__init__.py 2>/dev/null || true
+tests_dir = ROOT / "tests" / "app_retrieval"
+tests_dir.mkdir(parents=True, exist_ok=True)
+touch(ROOT / "tests" / "__init__.py")
+touch(ROOT / "tests" / "app_retrieval" / "__init__.py")
 
-TEST_TARGET="tests/app_retrieval/test_folder_search.py"
-if [ -f "$TEST_TARGET" ]; then
-    echo "[folder-search] Test file already exists: $TEST_TARGET"
-else
-    echo "[folder-search] Writing: $TEST_TARGET"
-    cat > "$TEST_TARGET" <<'PYEOF'
+TEST_TARGET = ROOT / "tests" / "app_retrieval" / "test_folder_search.py"
+
+TEST_CONTENT = '''\
 """
 Folder keyword search — TDD tests.
 Run: pytest tests/app_retrieval/test_folder_search.py -v
@@ -186,14 +239,19 @@ class TestFolderSearch:
         assert folder["id"] == 7
         assert folder["folder_name"] == "Test Folder"
         assert folder["folder_type"] == "shared"
-PYEOF
-fi
+'''
 
-echo ""
-echo "[folder-search] Done."
-echo ""
-echo "Verify:"
-echo "  pytest tests/app_retrieval/test_folder_search.py -v"
-echo ""
-echo "Expected: 6 tests pass"
-echo "Manual: GET /ws/folders/?q=engine → only folders with 'engine' in name"
+if TEST_TARGET.exists():
+    print(f"[folder-search] Test file already exists: {TEST_TARGET}")
+else:
+    print(f"[folder-search] Writing: {TEST_TARGET}")
+    ensure(TEST_TARGET, TEST_CONTENT)
+
+print("")
+print("[folder-search] Done.")
+print("")
+print("Verify:")
+print("  pytest tests/app_retrieval/test_folder_search.py -v")
+print("")
+print("Expected: 6 tests pass")
+print("Manual: GET /ws/folders/?q=engine -> only folders with 'engine' in name")

@@ -1,102 +1,120 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/usr/bin/env python3
+"""
+zh-65-transfer.py -- ZH-65: Deduplicate Folders / Fix exists() Bug
+Run from root of ENCHS-PW-GenAI-Backend/ (where manage.py lives).
+Idempotent: safe to run multiple times.
 
-echo "[ZH-65] Applying fixes to assets_search/api_folders.py..."
+Cross-platform equivalent of zh-65-transfer.sh (Windows/macOS/Linux).
+"""
 
-TARGET="app_extensions/extensions_standard/assets_search/api_folders.py"
-if [ ! -f "$TARGET" ]; then
-    echo "[ZH-65] ERROR: $TARGET not found. Run from ENCHS-PW-GenAI-Backend/ root."
-    exit 1
-fi
+import sys
+from pathlib import Path
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def ensure(path: Path, content: str) -> None:
+    """Write content to path, creating parent directories as needed."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def touch(path: Path) -> None:
+    """Create path (and parents) if it doesn't exist."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch()
+
+
+# ---------------------------------------------------------------------------
+# Pre-flight
+# ---------------------------------------------------------------------------
+
+print("[ZH-65] Applying fixes to assets_search/api_folders.py...")
+
+TARGET = Path("app_extensions/extensions_standard/assets_search/api_folders.py")
+if not TARGET.is_file():
+    print(f"[ZH-65] ERROR: {TARGET} not found. Run from ENCHS-PW-GenAI-Backend/ root.")
+    sys.exit(1)
 
 # ---------------------------------------------------------------------------
 # Patch 1 — Fix Bug 1: exists() == 0 inverted condition
 # Before: if not folders.exists() == 0:
 # After:  if not folders.exists():
 # ---------------------------------------------------------------------------
-python3 - <<'PYEOF'
-import sys
 
-path = "app_extensions/extensions_standard/assets_search/api_folders.py"
-with open(path) as f:
-    content = f.read()
+content = TARGET.read_text(encoding="utf-8")
 
 if "if not folders.exists():\n" in content and "== 0" not in content:
-    print("[ZH-65] Already patched (exists fix): " + path)
-    sys.exit(0)
+    print(f"[ZH-65] Already patched (exists fix): {TARGET}")
+else:
+    old_1 = "    if not folders.exists() == 0:\n        raise Exception"
+    new_1 = "    if not folders.exists():\n        raise Exception"
 
-old = "    if not folders.exists() == 0:\n        raise Exception"
-new = "    if not folders.exists():\n        raise Exception"
+    if old_1 not in content:
+        print("[ZH-65] ERROR: exists() anchor not found. File may have diverged.")
+        sys.exit(1)
 
-if old not in content:
-    print("[ZH-65] ERROR: exists() anchor not found. File may have diverged.")
-    sys.exit(1)
+    if content.count(old_1) > 1:
+        print("[ZH-65] ERROR: exists() anchor is not unique.")
+        sys.exit(1)
 
-if content.count(old) > 1:
-    print("[ZH-65] ERROR: exists() anchor is not unique.")
-    sys.exit(1)
-
-content = content.replace(old, new, 1)
-with open(path, "w") as f:
-    f.write(content)
-print("[ZH-65] Patched (exists fix): " + path)
-PYEOF
+    content = content.replace(old_1, new_1, 1)
+    TARGET.write_text(content, encoding="utf-8")
+    print(f"[ZH-65] Patched (exists fix): {TARGET}")
 
 # ---------------------------------------------------------------------------
 # Patch 2 — Fix Bug 2: dedup folder names by pk in get_description
 # Before: folder_names = [f.folder_name async for f in folders]
 # After:  seen_pks + explicit loop
 # ---------------------------------------------------------------------------
-python3 - <<'PYEOF'
-import sys
 
-path = "app_extensions/extensions_standard/assets_search/api_folders.py"
-with open(path) as f:
-    content = f.read()
+content = TARGET.read_text(encoding="utf-8")
 
 if "seen_pks = set()" in content:
-    print("[ZH-65] Already patched (dedup fix): " + path)
-    sys.exit(0)
+    print(f"[ZH-65] Already patched (dedup fix): {TARGET}")
+else:
+    old_2 = "    folder_names = [f.folder_name async for f in folders]\n"
+    new_2 = (
+        "    seen_pks = set()\n"
+        "    folder_names = []\n"
+        "    async for f in folders:\n"
+        "        if f.pk not in seen_pks:\n"
+        "            seen_pks.add(f.pk)\n"
+        "            folder_names.append(f.folder_name)\n"
+    )
 
-old = "    folder_names = [f.folder_name async for f in folders]\n"
-new = (
-    "    seen_pks = set()\n"
-    "    folder_names = []\n"
-    "    async for f in folders:\n"
-    "        if f.pk not in seen_pks:\n"
-    "            seen_pks.add(f.pk)\n"
-    "            folder_names.append(f.folder_name)\n"
-)
+    if old_2 not in content:
+        print("[ZH-65] ERROR: dedup anchor not found. File may have diverged.")
+        sys.exit(1)
 
-if old not in content:
-    print("[ZH-65] ERROR: dedup anchor not found. File may have diverged.")
-    sys.exit(1)
+    if content.count(old_2) > 1:
+        print("[ZH-65] ERROR: dedup anchor is not unique.")
+        sys.exit(1)
 
-if content.count(old) > 1:
-    print("[ZH-65] ERROR: dedup anchor is not unique.")
-    sys.exit(1)
-
-content = content.replace(old, new, 1)
-with open(path, "w") as f:
-    f.write(content)
-print("[ZH-65] Patched (dedup fix): " + path)
-PYEOF
+    content = content.replace(old_2, new_2, 1)
+    TARGET.write_text(content, encoding="utf-8")
+    print(f"[ZH-65] Patched (dedup fix): {TARGET}")
 
 # ---------------------------------------------------------------------------
 # Write test file
 # ---------------------------------------------------------------------------
-echo "[ZH-65] Writing test file..."
-mkdir -p tests/app_extensions
 
-cat > tests/app_extensions/test_folder_dedup.py <<'PYEOF'
+print("[ZH-65] Writing test file...")
+
+TEST_FILE = Path("tests/app_extensions/test_folder_dedup.py")
+TEST_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+TEST_CONTENT = '''\
 """
 ZH-65: Tests for two bugs in assets_search/api_folders.py
 
-Bug 1 — exists() == 0 is always False:
+Bug 1 -- exists() == 0 is always False:
     `if not folders.exists() == 0:` raises when folders EXIST (inverted logic).
     Fix: `if not folders.exists():`
 
-Bug 2 — get_description may repeat folder names:
+Bug 2 -- get_description may repeat folder names:
     If the queryset yields the same folder pk more than once, folder_name appears
     multiple times in the description string.
     Fix: dedupe by pk before building name list.
@@ -186,7 +204,7 @@ class TestExistsBug:
 class TestGetDescriptionDedup:
     @pytest.mark.asyncio
     async def test_duplicate_folder_pk_appears_once_in_description(self):
-        """Same folder pk yielded twice → name appears exactly once."""
+        """Same folder pk yielded twice -> name appears exactly once."""
         folder = MagicMock()
         folder.pk = 42
         folder.folder_name = "Engine Performance SAM"
@@ -207,7 +225,7 @@ class TestGetDescriptionDedup:
 
     @pytest.mark.asyncio
     async def test_two_distinct_folders_both_appear(self):
-        """Two different folder pks → both names in description."""
+        """Two different folder pks -> both names in description."""
         folder_a = MagicMock()
         folder_a.pk = 1
         folder_a.folder_name = "Airfoil Design"
@@ -233,7 +251,7 @@ class TestGetDescriptionDedup:
 
     @pytest.mark.asyncio
     async def test_empty_folder_list_returns_valid_description(self):
-        """No folders → description must not crash."""
+        """No folders -> description must not crash."""
         mock_qs = _make_async_iter([])
         mock_qs.distinct = MagicMock(return_value=mock_qs)
 
@@ -248,16 +266,26 @@ class TestGetDescriptionDedup:
 
         assert isinstance(desc, str)
         assert "anything" in desc
-PYEOF
+'''
 
-echo "[ZH-65] Done."
-echo ""
-echo "Verify:"
-echo "  pytest tests/app_extensions/test_folder_dedup.py -v"
-echo ""
-echo "Expected: 5 tests pass"
-echo "  TestExistsBug::test_call_does_not_raise_when_folders_exist"
-echo "  TestExistsBug::test_call_raises_when_no_folders_found"
-echo "  TestGetDescriptionDedup::test_duplicate_folder_pk_appears_once_in_description"
-echo "  TestGetDescriptionDedup::test_two_distinct_folders_both_appear"
-echo "  TestGetDescriptionDedup::test_empty_folder_list_returns_valid_description"
+if TEST_FILE.exists():
+    print(f"[ZH-65] {TEST_FILE} already exists, skipping.")
+else:
+    TEST_FILE.write_text(TEST_CONTENT, encoding="utf-8")
+    print(f"[ZH-65] Wrote: {TEST_FILE}")
+
+# ---------------------------------------------------------------------------
+# Done
+# ---------------------------------------------------------------------------
+
+print("[ZH-65] Done.")
+print()
+print("Verify:")
+print("  pytest tests/app_extensions/test_folder_dedup.py -v")
+print()
+print("Expected: 5 tests pass")
+print("  TestExistsBug::test_call_does_not_raise_when_folders_exist")
+print("  TestExistsBug::test_call_raises_when_no_folders_found")
+print("  TestGetDescriptionDedup::test_duplicate_folder_pk_appears_once_in_description")
+print("  TestGetDescriptionDedup::test_two_distinct_folders_both_appear")
+print("  TestGetDescriptionDedup::test_empty_folder_list_returns_valid_description")

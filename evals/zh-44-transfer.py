@@ -1,107 +1,122 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/usr/bin/env python3
+"""ZH-44 Transfer Script — cross-platform (Windows/macOS/Linux)
 
-BRANCH="zh-44-message-sources"
-TARGET="ENCHS-PW-GenAI-Backend/app_chatbot/views/chatstream.py"
-TESTS_DIR="ENCHS-PW-GenAI-Backend/tests/app_chatbot"
+Ticket: Persist sources on user ChatResponse
 
-echo "[ZH-44] Switching to branch $BRANCH..."
-git checkout main
-git pull
-git checkout -b "$BRANCH" 2>/dev/null || git checkout "$BRANCH"
+What this does:
+  1. Patches ENCHS-PW-GenAI-Backend/app_chatbot/views/chatstream.py
+     - adds _build_attachment_sources() helper after openai.api_key line
+     - replaces bare acreate() with sources=_build_attachment_sources(asset_ids)
+  2. Creates tests/app_chatbot/test_chatstream_sources.py (new file)
 
-if [ ! -f "$TARGET" ]; then
-    echo "ERROR: $TARGET not found. Run from repo root."
-    exit 1
-fi
-
-# ---------------------------------------------------------------------------
-# Patch chatstream.py — two targeted hunks via Python
-# ---------------------------------------------------------------------------
-echo "[ZH-44] Patching $TARGET..."
-
-python3 - "$TARGET" <<'PYEOF'
+Usage: python zh-44-transfer.py  (run from repo root)
+Safe to run twice — each patch is guarded.
+"""
+import subprocess
 import sys
+from pathlib import Path
 
-path = sys.argv[1]
-src = open(path).read()
-original = src
+BRANCH = "zh-44-message-sources"
+BACKEND = Path.cwd() / "ENCHS-PW-GenAI-Backend"
+TARGET = BACKEND / "app_chatbot" / "views" / "chatstream.py"
+TESTS_DIR = BACKEND / "tests" / "app_chatbot"
 
-# ---------------------------------------------------------------------------
-# Hunk 1: Add _build_attachment_sources() helper after openai.api_key line
-# ---------------------------------------------------------------------------
-ANCHOR_1 = "openai.api_key = settings.OPENAI_API_LLM_KEY\n"
-HELPER = (
-    "\n\n"
-    "def _build_attachment_sources(asset_ids: list) -> list[dict]:\n"
-    '    """Build the sources list for a user ChatResponse from uploaded asset IDs.\n'
-    "\n"
-    "    Only positive integers are valid PKs. Booleans are excluded (bool is a\n"
-    "    subclass of int in Python, so True/False would otherwise pass isinstance).\n"
-    "    String numerics are accepted (DRF may deliver IDs as strings).\n"
-    '    """\n'
-    "    return [\n"
-    '        {"source_type": "attachment", "asset_id": int(aid)}\n'
-    "        for aid in asset_ids\n"
-    "        if (isinstance(aid, int) and not isinstance(aid, bool) and aid > 0)\n"
-    "        or (isinstance(aid, str) and aid.isdigit() and int(aid) > 0)\n"
-    "    ]\n"
-)
 
-if "_build_attachment_sources" not in src:
-    if ANCHOR_1 in src:
-        src = src.replace(ANCHOR_1, ANCHOR_1 + HELPER, 1)
-        print("[ZH-44] Hunk 1 applied: _build_attachment_sources() added")
+def git(*args):
+    subprocess.run(["git", *args], check=True)
+
+
+def git_or(*args):
+    """Run git command, return True if succeeded."""
+    return subprocess.run(["git", *args]).returncode == 0
+
+
+def patch_chatstream():
+    """Apply two targeted hunks to chatstream.py."""
+    if not TARGET.exists():
+        print(f"ERROR: {TARGET} not found. Run from repo root.")
+        sys.exit(1)
+
+    print(f"[ZH-44] Patching {TARGET}...")
+    src = TARGET.read_text(encoding="utf-8")
+    original = src
+
+    # -----------------------------------------------------------------------
+    # Hunk 1: Add _build_attachment_sources() helper after openai.api_key line
+    # -----------------------------------------------------------------------
+    ANCHOR_1 = "openai.api_key = settings.OPENAI_API_LLM_KEY\n"
+    HELPER = (
+        "\n\n"
+        "def _build_attachment_sources(asset_ids: list) -> list[dict]:\n"
+        '    """Build the sources list for a user ChatResponse from uploaded asset IDs.\n'
+        "\n"
+        "    Only positive integers are valid PKs. Booleans are excluded (bool is a\n"
+        "    subclass of int in Python, so True/False would otherwise pass isinstance).\n"
+        "    String numerics are accepted (DRF may deliver IDs as strings).\n"
+        '    """\n'
+        "    return [\n"
+        '        {"source_type": "attachment", "asset_id": int(aid)}\n'
+        "        for aid in asset_ids\n"
+        "        if (isinstance(aid, int) and not isinstance(aid, bool) and aid > 0)\n"
+        "        or (isinstance(aid, str) and aid.isdigit() and int(aid) > 0)\n"
+        "    ]\n"
+    )
+
+    if "_build_attachment_sources" not in src:
+        if ANCHOR_1 in src:
+            src = src.replace(ANCHOR_1, ANCHOR_1 + HELPER, 1)
+            print("[ZH-44] Hunk 1 applied: _build_attachment_sources() added")
+        else:
+            print("[ZH-44] Hunk 1 WARNING: anchor 'openai.api_key = ...' not found")
     else:
-        print("[ZH-44] Hunk 1 WARNING: anchor 'openai.api_key = ...' not found")
-else:
-    print("[ZH-44] Hunk 1 skipped: helper already present")
+        print("[ZH-44] Hunk 1 skipped: helper already present")
 
-# ---------------------------------------------------------------------------
-# Hunk 2: Replace bare acreate call with sources= kwarg
-# ---------------------------------------------------------------------------
-OLD_ACREATE = (
-    "            user_input_chat_response: ChatResponse = await ChatResponse.objects.acreate(\n"
-    "                user=user,\n"
-    "                role=\"user\",\n"
-    "                content=user_input,\n"
-    "            )\n"
-)
-NEW_ACREATE = (
-    "            attachment_sources = _build_attachment_sources(asset_ids)\n"
-    "            user_input_chat_response: ChatResponse = await ChatResponse.objects.acreate(\n"
-    "                user=user,\n"
-    "                role=\"user\",\n"
-    "                content=user_input,\n"
-    "                sources=attachment_sources,\n"
-    "            )\n"
-)
+    # -----------------------------------------------------------------------
+    # Hunk 2: Replace bare acreate call with sources= kwarg
+    # -----------------------------------------------------------------------
+    OLD_ACREATE = (
+        "            user_input_chat_response: ChatResponse = await ChatResponse.objects.acreate(\n"
+        "                user=user,\n"
+        "                role=\"user\",\n"
+        "                content=user_input,\n"
+        "            )\n"
+    )
+    NEW_ACREATE = (
+        "            attachment_sources = _build_attachment_sources(asset_ids)\n"
+        "            user_input_chat_response: ChatResponse = await ChatResponse.objects.acreate(\n"
+        "                user=user,\n"
+        "                role=\"user\",\n"
+        "                content=user_input,\n"
+        "                sources=attachment_sources,\n"
+        "            )\n"
+    )
 
-if "sources=attachment_sources" not in src:
-    if OLD_ACREATE in src:
-        src = src.replace(OLD_ACREATE, NEW_ACREATE, 1)
-        print("[ZH-44] Hunk 2 applied: sources= added to acreate call")
+    if "sources=attachment_sources" not in src:
+        if OLD_ACREATE in src:
+            src = src.replace(OLD_ACREATE, NEW_ACREATE, 1)
+            print("[ZH-44] Hunk 2 applied: sources= added to acreate call")
+        else:
+            print("[ZH-44] Hunk 2 WARNING: acreate block not found — check chatstream.py manually")
     else:
-        print("[ZH-44] Hunk 2 WARNING: acreate block not found — check chatstream.py manually")
-else:
-    print("[ZH-44] Hunk 2 skipped: sources= already present")
+        print("[ZH-44] Hunk 2 skipped: sources= already present")
 
-if src != original:
-    open(path, "w").write(src)
-    print(f"[ZH-44] Written: {path}")
-else:
-    print("[ZH-44] No changes written (all hunks already applied)")
-PYEOF
+    if src != original:
+        TARGET.write_text(src, encoding="utf-8")
+        print(f"[ZH-44] Written: {TARGET}")
+    else:
+        print("[ZH-44] No changes written (all hunks already applied)")
 
-# ---------------------------------------------------------------------------
-# New test file
-# ---------------------------------------------------------------------------
-echo "[ZH-44] Creating test file..."
-mkdir -p "$TESTS_DIR"
-touch "$TESTS_DIR/__init__.py"
 
-cat > "$TESTS_DIR/test_chatstream_sources.py" <<'PYEOF'
-"""Tests for ZH-44: user ChatResponse sources persistence.
+def write_test_file():
+    """Create tests/app_chatbot/test_chatstream_sources.py."""
+    print("[ZH-44] Creating test file...")
+    TESTS_DIR.mkdir(parents=True, exist_ok=True)
+    init_file = TESTS_DIR / "__init__.py"
+    if not init_file.exists():
+        init_file.touch()
+
+    test_file = TESTS_DIR / "test_chatstream_sources.py"
+    content = r'''"""Tests for ZH-44: user ChatResponse sources persistence.
 
 Run on transfer machine:
     pytest tests/app_chatbot/test_chatstream_sources.py -v -k "sources"
@@ -261,13 +276,30 @@ class TestUserChatResponseSourcesPersisted:
         user_call = acreate_mock.call_args_list[0]
         sources = user_call.kwargs.get("sources", [])
         assert sources == []
-PYEOF
+'''
+    test_file.write_text(content, encoding="utf-8")
+    print(f"[ZH-44] Written: {test_file}")
 
-echo ""
-echo "[ZH-44] Done. Verify with:"
-echo "  cd ENCHS-PW-GenAI-Backend"
-echo "  pytest tests/app_chatbot/test_chatstream_sources.py -v"
-echo "  # Expect 13 tests passing"
-echo ""
-echo "  Integration test: POST with asset_ids, GET conversation history,"
-echo "  confirm user message JSON includes sources list."
+
+def main():
+    print(f"[ZH-44] Switching to branch {BRANCH}...")
+    git("checkout", "main")
+    git("pull")
+    if not git_or("checkout", "-b", BRANCH):
+        git("checkout", BRANCH)
+
+    patch_chatstream()
+    write_test_file()
+
+    print()
+    print("[ZH-44] Done. Verify with:")
+    print("  cd ENCHS-PW-GenAI-Backend")
+    print("  pytest tests/app_chatbot/test_chatstream_sources.py -v")
+    print("  # Expect 13 tests passing")
+    print()
+    print("  Integration test: POST with asset_ids, GET conversation history,")
+    print("  confirm user message JSON includes sources list.")
+
+
+if __name__ == "__main__":
+    main()

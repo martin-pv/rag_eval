@@ -1,58 +1,41 @@
-#!/usr/bin/env bash
-set -euo pipefail
+"""
+ngaip-491-transfer.py
+Transfers NGAIP-491 catalog agentic tooling to the runtime machine.
+Idempotent: safe to run multiple times.
+Run from: ENCHS-PW-GenAI-Backend/ project root on the target machine.
+Cross-platform: Windows cmd.exe, macOS, Linux.
 
-REPO_ROOT="$(pwd)"
-echo "[491-transfer] Starting transfer into: $REPO_ROOT"
-
-# ---------------------------------------------------------------------------
-# Create directories
-# ---------------------------------------------------------------------------
-mkdir -p "$REPO_ROOT/backend/app_extensions/extensions_standard/app_catalog"
-mkdir -p "$REPO_ROOT/backend/tests/app_extensions"
-echo "[491-transfer] Created directories"
-
-# ---------------------------------------------------------------------------
-# Patch 1 — apps.py: register extensions_standard.app_catalog after deep_research
-# ---------------------------------------------------------------------------
-python3 - << 'PYEOF'
+What this does:
+  1. Patches backend/app_extensions/apps.py to register extensions_standard.app_catalog
+  2. Creates the app_catalog extension package (api.py + __init__.py)
+  3. Creates the test file
+"""
 import sys
+from pathlib import Path
 
-path = "backend/app_extensions/apps.py"
-with open(path) as f:
-    content = f.read()
-
-# Idempotent guard
-if '"extensions_standard.app_catalog"' in content:
-    print("[491-transfer] Already patched (app_catalog registered): " + path)
-    sys.exit(0)
-
-anchor = '    "extensions_standard.deep_research",'
-if anchor not in content:
-    print("[491-transfer] ERROR: anchor not found in " + path)
-    sys.exit(1)
-
-if content.count(anchor) > 1:
-    print("[491-transfer] ERROR: anchor is not unique in " + path)
-    sys.exit(1)
-
-new_code = anchor + '\n    "extensions_standard.app_catalog",'
-content = content.replace(anchor, new_code, 1)
-
-with open(path, "w") as f:
-    f.write(content)
-print("[491-transfer] Patched (app_catalog registered): " + path)
-PYEOF
 
 # ---------------------------------------------------------------------------
-# app_extensions/extensions_standard/app_catalog/__init__.py
+# Helpers
 # ---------------------------------------------------------------------------
-touch "$REPO_ROOT/backend/app_extensions/extensions_standard/app_catalog/__init__.py"
-echo "[491-transfer] Ensured: backend/app_extensions/extensions_standard/app_catalog/__init__.py"
+
+def ensure(path: Path, content: str) -> None:
+    """Write content to path, creating parent dirs as needed. Always overwrites."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def touch(path: Path) -> None:
+    """Create an empty file (and parent dirs) if it does not exist."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        path.write_text("", encoding="utf-8")
+
 
 # ---------------------------------------------------------------------------
-# app_extensions/extensions_standard/app_catalog/api.py
+# Embedded file content
 # ---------------------------------------------------------------------------
-cat > "$REPO_ROOT/backend/app_extensions/extensions_standard/app_catalog/api.py" << 'BASHEOF'
+
+APP_CATALOG_API_PY = '''\
 import json
 from pathlib import Path
 
@@ -114,7 +97,7 @@ gpt_tool_entry = get_tool_entry
 
 async def get_description(request: HttpRequest, params: dict) -> str:
     q = params.get("search_query", "")
-    return f"Searching the App Catalog for '{q}'"
+    return f"Searching the App Catalog for \'{q}\'"
 
 
 async def has_access(request: HttpRequest) -> bool:
@@ -133,7 +116,7 @@ async def call(
 
     projects = await _search_projects(search_query)
     if not projects:
-        return f"No applications found in the catalog matching '{search_query}'."
+        return f"No applications found in the catalog matching \'{search_query}\'."
 
     results = []
     for proj in projects:
@@ -147,19 +130,9 @@ async def call(
         })
 
     return json.dumps(results, indent=2)
-BASHEOF
-echo "[491-transfer] Created: backend/app_extensions/extensions_standard/app_catalog/api.py"
+'''
 
-# ---------------------------------------------------------------------------
-# tests/app_extensions/__init__.py
-# ---------------------------------------------------------------------------
-touch "$REPO_ROOT/backend/tests/app_extensions/__init__.py"
-echo "[491-transfer] Ensured: backend/tests/app_extensions/__init__.py"
-
-# ---------------------------------------------------------------------------
-# tests/app_extensions/test_app_catalog_extension.py
-# ---------------------------------------------------------------------------
-cat > "$REPO_ROOT/backend/tests/app_extensions/test_app_catalog_extension.py" << 'BASHEOF'
+TEST_APP_CATALOG_PY = '''\
 """Tests for the app_catalog standard extension (NGAIP-491).
 
 All DB access is mocked — no live Django setup needed.
@@ -282,20 +255,93 @@ async def test_get_description_includes_query():
     result = await get_description(MagicMock(), {"search_query": "turbofan"})
 
     assert "turbofan" in result
-BASHEOF
-echo "[491-transfer] Created: backend/tests/app_extensions/test_app_catalog_extension.py"
+'''
+
 
 # ---------------------------------------------------------------------------
-# Done
+# Main
 # ---------------------------------------------------------------------------
-echo ""
-echo "[491-transfer] Complete. Verify with:"
-echo "  python manage.py check   # no import errors"
-echo "  pytest backend/tests/app_extensions/test_app_catalog_extension.py -v"
-echo ""
-echo "  # Confirm extension registered:"
-echo "  python -c \""
-echo "from app_extensions.apps import EXTENSIONS"
-echo "assert 'extensions_standard.app_catalog' in EXTENSIONS"
-echo "print('Registered OK')"
-echo "\""
+
+def main() -> None:
+    REPO_ROOT = Path.cwd()
+    print(f"[491-transfer] Starting transfer into: {REPO_ROOT}")
+
+    # -----------------------------------------------------------------------
+    # Create directories
+    # -----------------------------------------------------------------------
+    (REPO_ROOT / "backend" / "app_extensions" / "extensions_standard" / "app_catalog").mkdir(
+        parents=True, exist_ok=True
+    )
+    (REPO_ROOT / "backend" / "tests" / "app_extensions").mkdir(parents=True, exist_ok=True)
+    print("[491-transfer] Created directories")
+
+    # -----------------------------------------------------------------------
+    # Patch 1 — apps.py: register extensions_standard.app_catalog after deep_research
+    # -----------------------------------------------------------------------
+    apps_path = REPO_ROOT / "backend" / "app_extensions" / "apps.py"
+    src = apps_path.read_text(encoding="utf-8")
+
+    if '"extensions_standard.app_catalog"' in src:
+        print("[491-transfer] Already patched (app_catalog registered): skipping patch 1")
+    else:
+        anchor = '    "extensions_standard.deep_research",'
+        if anchor not in src:
+            print(f"[491-transfer] ERROR: anchor not found in {apps_path}")
+            sys.exit(1)
+        if src.count(anchor) > 1:
+            print(f"[491-transfer] ERROR: anchor is not unique in {apps_path}")
+            sys.exit(1)
+        new_code = anchor + '\n    "extensions_standard.app_catalog",'
+        apps_path.write_text(src.replace(anchor, new_code, 1), encoding="utf-8")
+        print(f"[491-transfer] Patched (app_catalog registered): {apps_path}")
+
+    # -----------------------------------------------------------------------
+    # app_extensions/extensions_standard/app_catalog/__init__.py
+    # -----------------------------------------------------------------------
+    touch(
+        REPO_ROOT / "backend" / "app_extensions" / "extensions_standard" / "app_catalog" / "__init__.py"
+    )
+    print("[491-transfer] Ensured: backend/app_extensions/extensions_standard/app_catalog/__init__.py")
+
+    # -----------------------------------------------------------------------
+    # app_extensions/extensions_standard/app_catalog/api.py  (always write)
+    # -----------------------------------------------------------------------
+    ensure(
+        REPO_ROOT / "backend" / "app_extensions" / "extensions_standard" / "app_catalog" / "api.py",
+        APP_CATALOG_API_PY,
+    )
+    print("[491-transfer] Created: backend/app_extensions/extensions_standard/app_catalog/api.py")
+
+    # -----------------------------------------------------------------------
+    # tests/app_extensions/__init__.py
+    # -----------------------------------------------------------------------
+    touch(REPO_ROOT / "backend" / "tests" / "app_extensions" / "__init__.py")
+    print("[491-transfer] Ensured: backend/tests/app_extensions/__init__.py")
+
+    # -----------------------------------------------------------------------
+    # tests/app_extensions/test_app_catalog_extension.py  (always write)
+    # -----------------------------------------------------------------------
+    ensure(
+        REPO_ROOT / "backend" / "tests" / "app_extensions" / "test_app_catalog_extension.py",
+        TEST_APP_CATALOG_PY,
+    )
+    print("[491-transfer] Created: backend/tests/app_extensions/test_app_catalog_extension.py")
+
+    # -----------------------------------------------------------------------
+    # Done
+    # -----------------------------------------------------------------------
+    print()
+    print("[491-transfer] Complete. Verify with:")
+    print("  python manage.py check   # no import errors")
+    print("  pytest backend/tests/app_extensions/test_app_catalog_extension.py -v")
+    print()
+    print("  # Confirm extension registered:")
+    print("  python -c \"")
+    print("from app_extensions.apps import EXTENSIONS")
+    print("assert 'extensions_standard.app_catalog' in EXTENSIONS")
+    print("print('Registered OK')")
+    print("\"")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,27 +1,55 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/usr/bin/env python3
+"""ZH-62 Transfer Script — cross-platform (Windows/macOS/Linux)
 
-echo "[ZH-62] Starting transfer..."
+Ticket: Hybrid keyword / semantic RAG routing
 
-# ---------------------------------------------------------------------------
-# Patch 1 — Add _normalize_scores + hybrid_search_folder to views/search.py
-# ---------------------------------------------------------------------------
-python3 - <<'PYEOF'
+What this does:
+  1. Patches app_retrieval/views/search.py
+     - adds _normalize_scores() + hybrid_search_folder() before chunk_reranking
+       (or appends to end if chunk_reranking not found)
+  2. Patches app_retrieval/views_search.py
+     - ensures hybrid_search_folder is imported
+  3. Creates tests/app_retrieval/test_hybrid_search.py (new file)
+
+Usage: python zh-62-transfer.py  (run from ENCHS-PW-GenAI-Backend/ root)
+Idempotent: safe to run multiple times.
+"""
+import re
+import subprocess
 import sys
+from pathlib import Path
 
-path = "app_retrieval/views/search.py"
-try:
-    with open(path) as f:
-        content = f.read()
-except FileNotFoundError:
-    print(f"[ZH-62] ERROR: {path} not found. Run from ENCHS-PW-GenAI-Backend/ root.")
-    sys.exit(1)
+BRANCH = "zh-62-hybrid-rag"
+BACKEND = Path.cwd()
 
-if "hybrid_search_folder" in content:
-    print("[ZH-62] Already patched (hybrid_search_folder): " + path)
-    sys.exit(0)
+SEARCH_PY = BACKEND / "app_retrieval" / "views" / "search.py"
+VIEWS_SEARCH_PY = BACKEND / "app_retrieval" / "views_search.py"
+TESTS_DIR = BACKEND / "tests" / "app_retrieval"
+TEST_FILE = TESTS_DIR / "test_hybrid_search.py"
 
-insertion = """
+
+def git(*args):
+    subprocess.run(["git", *args], check=True)
+
+
+def git_or(*args):
+    """Run git command, return True if succeeded."""
+    return subprocess.run(["git", *args]).returncode == 0
+
+
+def patch_search_py():
+    """Add _normalize_scores + hybrid_search_folder to views/search.py."""
+    if not SEARCH_PY.exists():
+        print(f"[ZH-62] ERROR: {SEARCH_PY} not found. Run from ENCHS-PW-GenAI-Backend/ root.")
+        sys.exit(1)
+
+    content = SEARCH_PY.read_text(encoding="utf-8")
+
+    if "hybrid_search_folder" in content:
+        print(f"[ZH-62] Already patched (hybrid_search_folder): {SEARCH_PY}")
+        return
+
+    insertion = '''
 
 def _normalize_scores(results: list[dict]) -> list[dict]:
     if not results:
@@ -35,7 +63,7 @@ def _normalize_scores(results: list[dict]) -> list[dict]:
 
 
 async def hybrid_search_folder(request, search_query: str, folder, top_k: int = 5) -> list[dict]:
-    \\"\\"\\"Merge semantic + keyword results, normalize scores, dedupe by (asset_id, start_lab).\\"\\"\\"
+    """Merge semantic + keyword results, normalize scores, dedupe by (asset_id, start_lab)."""
     import asyncio
     semantic, keyword = await asyncio.gather(
         search_folder(request, search_query, folder, target_total_k_results=top_k),
@@ -52,59 +80,62 @@ async def hybrid_search_folder(request, search_query: str, folder, top_k: int = 
         else:
             merged[key] = result
     return sorted(merged.values(), key=lambda x: x["_norm_score"], reverse=True)[:top_k]
-"""
+'''
 
-if "async def chunk_reranking" in content:
-    content = content.replace("async def chunk_reranking", insertion + "\nasync def chunk_reranking", 1)
-else:
-    content = content.rstrip() + "\n" + insertion + "\n"
+    if "async def chunk_reranking" in content:
+        content = content.replace(
+            "async def chunk_reranking",
+            insertion + "\nasync def chunk_reranking",
+            1,
+        )
+    else:
+        content = content.rstrip() + "\n" + insertion + "\n"
 
-with open(path, "w") as f:
-    f.write(content)
-print("[ZH-62] Patched (hybrid_search_folder): " + path)
-PYEOF
+    SEARCH_PY.write_text(content, encoding="utf-8")
+    print(f"[ZH-62] Patched (hybrid_search_folder): {SEARCH_PY}")
 
-# ---------------------------------------------------------------------------
-# Patch 2 — Ensure views_search.py imports hybrid_search_folder
-# ---------------------------------------------------------------------------
-python3 - <<'PYEOF'
-import sys, re
 
-path = "app_retrieval/views_search.py"
-try:
-    with open(path) as f:
-        content = f.read()
-except FileNotFoundError:
-    print(f"[ZH-62] ERROR: {path} not found.")
-    sys.exit(1)
+def patch_views_search_py():
+    """Ensure views_search.py imports hybrid_search_folder."""
+    if not VIEWS_SEARCH_PY.exists():
+        print(f"[ZH-62] ERROR: {VIEWS_SEARCH_PY} not found.")
+        sys.exit(1)
 
-if "hybrid_search_folder" in content:
-    print("[ZH-62] hybrid_search_folder already present in: " + path)
-    sys.exit(0)
+    content = VIEWS_SEARCH_PY.read_text(encoding="utf-8")
 
-existing = re.search(r"(from app_retrieval\.views\.search import[^\n]+)", content)
-if existing:
-    content = content.replace(existing.group(1), existing.group(1) + ", hybrid_search_folder", 1)
-else:
-    content = "from app_retrieval.views.search import hybrid_search_folder\n" + content
+    if "hybrid_search_folder" in content:
+        print(f"[ZH-62] hybrid_search_folder already present in: {VIEWS_SEARCH_PY}")
+        return
 
-with open(path, "w") as f:
-    f.write(content)
-print("[ZH-62] Patched (import): " + path)
-PYEOF
+    existing = re.search(r"(from app_retrieval\.views\.search import[^\n]+)", content)
+    if existing:
+        content = content.replace(
+            existing.group(1),
+            existing.group(1) + ", hybrid_search_folder",
+            1,
+        )
+    else:
+        content = "from app_retrieval.views.search import hybrid_search_folder\n" + content
 
-# ---------------------------------------------------------------------------
-# Write tests
-# ---------------------------------------------------------------------------
-mkdir -p tests/app_retrieval
-touch tests/__init__.py tests/app_retrieval/__init__.py 2>/dev/null || true
+    VIEWS_SEARCH_PY.write_text(content, encoding="utf-8")
+    print(f"[ZH-62] Patched (import): {VIEWS_SEARCH_PY}")
 
-TEST="tests/app_retrieval/test_hybrid_search.py"
-if [ -f "$TEST" ]; then
-    echo "[ZH-62] Test file already exists: $TEST"
-else
-    python3 - <<'PYEOF'
-content = '''"""Tests for ZH-62 hybrid RAG routing.
+
+def write_test_file():
+    """Create tests/app_retrieval/test_hybrid_search.py."""
+    TESTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    tests_init = BACKEND / "tests" / "__init__.py"
+    retrieval_init = TESTS_DIR / "__init__.py"
+    for init in (tests_init, retrieval_init):
+        if not init.exists():
+            init.touch()
+
+    if TEST_FILE.exists():
+        print(f"[ZH-62] Test file already exists: {TEST_FILE}")
+        return
+
+    content = r'''"""Tests for ZH-62 hybrid RAG routing.
 
 Run unit tests (no DB):
     pytest tests/app_retrieval/test_hybrid_search.py -v -m "not integration"
@@ -221,14 +252,28 @@ class TestHybridIntegration:
         keys = [(r.get("asset_id"), r.get("start_lab")) for r in results]
         assert len(keys) == len(set(keys))
 '''
-with open("tests/app_retrieval/test_hybrid_search.py", "w") as f:
-    f.write(content)
-print("[ZH-62] Wrote: tests/app_retrieval/test_hybrid_search.py")
-PYEOF
-fi
+    TEST_FILE.write_text(content, encoding="utf-8")
+    print(f"[ZH-62] Wrote: {TEST_FILE}")
 
-echo ""
-echo "[ZH-62] Done."
-echo "Unit tests (no DB): pytest tests/app_retrieval/test_hybrid_search.py -v -m 'not integration'"
-echo "All tests:          pytest tests/app_retrieval/test_hybrid_search.py -v"
-echo "Manual:             GET /ws/search/folders/<pk>/?search_query=engine&keyword_search=hybrid"
+
+def main():
+    print("[ZH-62] Starting transfer...")
+
+    # Note: zh-62 runs from ENCHS-PW-GenAI-Backend/ root (no BACKEND prefix needed for git).
+    # Git branch ops still apply.
+    if not git_or("checkout", "-b", BRANCH):
+        git("checkout", BRANCH)
+
+    patch_search_py()
+    patch_views_search_py()
+    write_test_file()
+
+    print()
+    print("[ZH-62] Done.")
+    print("Unit tests (no DB): pytest tests/app_retrieval/test_hybrid_search.py -v -m 'not integration'")
+    print("All tests:          pytest tests/app_retrieval/test_hybrid_search.py -v")
+    print("Manual:             GET /ws/search/folders/<pk>/?search_query=engine&keyword_search=hybrid")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,41 +1,95 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/usr/bin/env python3
+"""NGAIP-363 Transfer Script — cross-platform (Windows/macOS/Linux)
+Usage: python ngaip-363-transfer.py  (run from repo root)
+"""
+import subprocess
+import sys
+from pathlib import Path
 
-REPO_ROOT="$(pwd)"
-echo "[363-transfer] Starting transfer into: $REPO_ROOT"
+BRANCH = "ngaip-363-rag-evaluation-harness"
+BACKEND = Path.cwd() / "ENCHS-PW-GenAI-Backend"
 
-# ---------------------------------------------------------------------------
-# requirements.txt — append only if not already present
-# ---------------------------------------------------------------------------
-echo "[363-transfer] Patching requirements.txt..."
-grep -q "ragas>=" "$REPO_ROOT/requirements.txt" || echo "ragas>=0.2.0" >> "$REPO_ROOT/requirements.txt"
-grep -q "datasets>=" "$REPO_ROOT/requirements.txt" || echo "datasets>=2.14.0" >> "$REPO_ROOT/requirements.txt"
 
-# ---------------------------------------------------------------------------
-# Create directories
-# ---------------------------------------------------------------------------
-echo "[363-transfer] Creating directories..."
-mkdir -p "$REPO_ROOT/app_retrieval/evaluation/metrics"
-mkdir -p "$REPO_ROOT/app_retrieval/evaluation/reporters"
-mkdir -p "$REPO_ROOT/app_retrieval/evaluation/config"
-mkdir -p "$REPO_ROOT/app_retrieval/management/commands"
-mkdir -p "$REPO_ROOT/tests/app_retrieval"
+def git(*args):
+    subprocess.run(["git", *args], check=True)
 
-# ---------------------------------------------------------------------------
-# Package __init__ files (empty)
-# ---------------------------------------------------------------------------
-touch "$REPO_ROOT/app_retrieval/evaluation/__init__.py"
-touch "$REPO_ROOT/app_retrieval/evaluation/metrics/__init__.py"
-touch "$REPO_ROOT/app_retrieval/evaluation/reporters/__init__.py"
-touch "$REPO_ROOT/app_retrieval/management/__init__.py"
-touch "$REPO_ROOT/app_retrieval/management/commands/__init__.py"
-touch "$REPO_ROOT/tests/app_retrieval/__init__.py"
-echo "[363-transfer] Ensured: __init__.py files"
 
-# ---------------------------------------------------------------------------
-# evaluation/config.py
-# ---------------------------------------------------------------------------
-cat > "$REPO_ROOT/app_retrieval/evaluation/config.py" <<'PYEOF'
+def git_or(*args):
+    return subprocess.run(["git", *args]).returncode == 0
+
+
+def ensure(path: Path, content: str):
+    """Write file, creating parent dirs. Idempotent -- overwrites if exists."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    print(f"  Created: {path}")
+
+
+def touch(path: Path):
+    """Create empty file (and parent dirs) if it does not exist."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        path.touch()
+        print(f"  Touched: {path}")
+    else:
+        print(f"  Already exists: {path}")
+
+
+def append_if_missing(path: Path, line: str):
+    """Append line to file only if not already present (replaces grep -q guard)."""
+    text = path.read_text(encoding="utf-8") if path.exists() else ""
+    if line.rstrip() not in text:
+        with path.open("a", encoding="utf-8") as f:
+            f.write(line if line.endswith("\n") else line + "\n")
+        print(f"  Appended: {line.strip()}")
+    else:
+        print(f"  Already present: {line.strip()}")
+
+
+def main():
+    print(f"[363-transfer] Starting transfer into: {Path.cwd()}")
+
+    # -------------------------------------------------------------------------
+    # requirements.txt -- append only if not already present
+    # -------------------------------------------------------------------------
+    print("[363-transfer] Patching requirements.txt...")
+    req = BACKEND / "requirements.txt"
+    append_if_missing(req, "ragas>=0.2.0")
+    append_if_missing(req, "datasets>=2.14.0")
+
+    # -------------------------------------------------------------------------
+    # Create directories (mkdir -p equivalent -- Path.mkdir handles this)
+    # -------------------------------------------------------------------------
+    print("[363-transfer] Creating directories...")
+    for d in [
+        BACKEND / "app_retrieval" / "evaluation" / "metrics",
+        BACKEND / "app_retrieval" / "evaluation" / "reporters",
+        BACKEND / "app_retrieval" / "evaluation" / "config",
+        BACKEND / "app_retrieval" / "management" / "commands",
+        BACKEND / "tests" / "app_retrieval",
+    ]:
+        d.mkdir(parents=True, exist_ok=True)
+
+    # -------------------------------------------------------------------------
+    # Package __init__ files (empty)
+    # -------------------------------------------------------------------------
+    for init in [
+        BACKEND / "app_retrieval" / "evaluation" / "__init__.py",
+        BACKEND / "app_retrieval" / "evaluation" / "metrics" / "__init__.py",
+        BACKEND / "app_retrieval" / "evaluation" / "reporters" / "__init__.py",
+        BACKEND / "app_retrieval" / "management" / "__init__.py",
+        BACKEND / "app_retrieval" / "management" / "commands" / "__init__.py",
+        BACKEND / "tests" / "app_retrieval" / "__init__.py",
+    ]:
+        touch(init)
+    print("[363-transfer] Ensured: __init__.py files")
+
+    # -------------------------------------------------------------------------
+    # evaluation/config.py
+    # -------------------------------------------------------------------------
+    ensure(
+        BACKEND / "app_retrieval" / "evaluation" / "config.py",
+        """\
 from __future__ import annotations
 
 from typing import Literal
@@ -65,19 +119,21 @@ class EvalConfig(BaseModel):
                 f"eval_user_id is required when retriever_type is {self.retriever_type!r}"
             )
         return self
-PYEOF
-echo "[363-transfer] Created: app_retrieval/evaluation/config.py"
+""",
+    )
 
-# ---------------------------------------------------------------------------
-# evaluation/retriever.py
-# ---------------------------------------------------------------------------
-cat > "$REPO_ROOT/app_retrieval/evaluation/retriever.py" <<'PYEOF'
+    # -------------------------------------------------------------------------
+    # evaluation/retriever.py
+    # -------------------------------------------------------------------------
+    ensure(
+        BACKEND / "app_retrieval" / "evaluation" / "retriever.py",
+        '''\
 """Retriever adapters for the RAG evaluation harness.
 
 Each adapter exposes a single async method `retrieve(query, folder, top_k) -> list[dict]`
 so the runner can call them uniformly regardless of retriever type.
 
-Wrappers call the real retrieval functions — they do NOT copy their logic.
+Wrappers call the real retrieval functions -- they do NOT copy their logic.
   SemanticRetriever  -> app_retrieval.data_assets.utils.search_folder_index  (async)
   KeywordRetriever   -> app_retrieval.views.search.keyword_search_folder      (async)
   HybridRetriever    -> both, merged by score descending
@@ -151,13 +207,15 @@ def build_retriever(retriever_type: str, eval_user=None) -> BaseRetriever:
     if retriever_type == "hybrid":
         return HybridRetriever(eval_user=eval_user)
     raise ValueError(f"Unknown retriever_type: {retriever_type!r}")
-PYEOF
-echo "[363-transfer] Created: app_retrieval/evaluation/retriever.py"
+''',
+    )
 
-# ---------------------------------------------------------------------------
-# evaluation/metrics/base.py
-# ---------------------------------------------------------------------------
-cat > "$REPO_ROOT/app_retrieval/evaluation/metrics/base.py" <<'PYEOF'
+    # -------------------------------------------------------------------------
+    # evaluation/metrics/base.py
+    # -------------------------------------------------------------------------
+    ensure(
+        BACKEND / "app_retrieval" / "evaluation" / "metrics" / "base.py",
+        """\
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -174,16 +232,18 @@ class MetricModule(ABC):
         answer: str,
         ground_truth: str | None = None,
     ) -> dict:
-        """Return a dict mapping metric name(s) to float scores."""
+        \"\"\"Return a dict mapping metric name(s) to float scores.\"\"\"
         ...
-PYEOF
-echo "[363-transfer] Created: app_retrieval/evaluation/metrics/base.py"
+""",
+    )
 
-# ---------------------------------------------------------------------------
-# evaluation/metrics/context_relevancy.py
-# ---------------------------------------------------------------------------
-cat > "$REPO_ROOT/app_retrieval/evaluation/metrics/context_relevancy.py" <<'PYEOF'
-"""Stub — real implementation added in NGAIP-365."""
+    # -------------------------------------------------------------------------
+    # evaluation/metrics/context_relevancy.py
+    # -------------------------------------------------------------------------
+    ensure(
+        BACKEND / "app_retrieval" / "evaluation" / "metrics" / "context_relevancy.py",
+        """\
+\"\"\"Stub -- real implementation added in NGAIP-365.\"\"\"
 from __future__ import annotations
 
 from .base import MetricModule
@@ -199,16 +259,18 @@ class ContextRelevancyMetric(MetricModule):
         answer: str,
         ground_truth: str | None = None,
     ) -> dict:
-        # TODO: NGAIP-365 — implement via ragas ContextPrecision/ContextRecall
+        # TODO: NGAIP-365 -- implement via ragas ContextPrecision/ContextRecall
         return {"context_relevancy": 0.0}
-PYEOF
-echo "[363-transfer] Created: app_retrieval/evaluation/metrics/context_relevancy.py"
+""",
+    )
 
-# ---------------------------------------------------------------------------
-# evaluation/metrics/citation_accuracy.py
-# ---------------------------------------------------------------------------
-cat > "$REPO_ROOT/app_retrieval/evaluation/metrics/citation_accuracy.py" <<'PYEOF'
-"""Stub — real implementation added in NGAIP-364."""
+    # -------------------------------------------------------------------------
+    # evaluation/metrics/citation_accuracy.py
+    # -------------------------------------------------------------------------
+    ensure(
+        BACKEND / "app_retrieval" / "evaluation" / "metrics" / "citation_accuracy.py",
+        """\
+\"\"\"Stub -- real implementation added in NGAIP-364.\"\"\"
 from __future__ import annotations
 
 from .base import MetricModule
@@ -224,16 +286,18 @@ class CitationAccuracyMetric(MetricModule):
         answer: str,
         ground_truth: str | None = None,
     ) -> dict:
-        # TODO: NGAIP-364 — implement citation matching against context spans
+        # TODO: NGAIP-364 -- implement citation matching against context spans
         return {"citation_accuracy": 0.0}
-PYEOF
-echo "[363-transfer] Created: app_retrieval/evaluation/metrics/citation_accuracy.py"
+""",
+    )
 
-# ---------------------------------------------------------------------------
-# evaluation/metrics/response_accuracy.py
-# ---------------------------------------------------------------------------
-cat > "$REPO_ROOT/app_retrieval/evaluation/metrics/response_accuracy.py" <<'PYEOF'
-"""Stub — real implementation added in NGAIP-366."""
+    # -------------------------------------------------------------------------
+    # evaluation/metrics/response_accuracy.py
+    # -------------------------------------------------------------------------
+    ensure(
+        BACKEND / "app_retrieval" / "evaluation" / "metrics" / "response_accuracy.py",
+        """\
+\"\"\"Stub -- real implementation added in NGAIP-366.\"\"\"
 from __future__ import annotations
 
 from .base import MetricModule
@@ -249,15 +313,17 @@ class ResponseAccuracyMetric(MetricModule):
         answer: str,
         ground_truth: str | None = None,
     ) -> dict:
-        # TODO: NGAIP-366 — implement via ragas AnswerCorrectness / LLM-as-judge
+        # TODO: NGAIP-366 -- implement via ragas AnswerCorrectness / LLM-as-judge
         return {"response_accuracy": 0.0}
-PYEOF
-echo "[363-transfer] Created: app_retrieval/evaluation/metrics/response_accuracy.py"
+""",
+    )
 
-# ---------------------------------------------------------------------------
-# evaluation/reporters/json_reporter.py
-# ---------------------------------------------------------------------------
-cat > "$REPO_ROOT/app_retrieval/evaluation/reporters/json_reporter.py" <<'PYEOF'
+    # -------------------------------------------------------------------------
+    # evaluation/reporters/json_reporter.py
+    # -------------------------------------------------------------------------
+    ensure(
+        BACKEND / "app_retrieval" / "evaluation" / "reporters" / "json_reporter.py",
+        """\
 from __future__ import annotations
 
 import json
@@ -284,13 +350,15 @@ class JsonReporter:
         out_path = output_dir / "report.json"
         out_path.write_text(json.dumps(report, indent=2))
         return report
-PYEOF
-echo "[363-transfer] Created: app_retrieval/evaluation/reporters/json_reporter.py"
+""",
+    )
 
-# ---------------------------------------------------------------------------
-# evaluation/reporters/csv_reporter.py
-# ---------------------------------------------------------------------------
-cat > "$REPO_ROOT/app_retrieval/evaluation/reporters/csv_reporter.py" <<'PYEOF'
+    # -------------------------------------------------------------------------
+    # evaluation/reporters/csv_reporter.py
+    # -------------------------------------------------------------------------
+    ensure(
+        BACKEND / "app_retrieval" / "evaluation" / "reporters" / "csv_reporter.py",
+        """\
 from __future__ import annotations
 
 import csv
@@ -309,14 +377,16 @@ class CsvReporter:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(results)
-PYEOF
-echo "[363-transfer] Created: app_retrieval/evaluation/reporters/csv_reporter.py"
+""",
+    )
 
-# ---------------------------------------------------------------------------
-# evaluation/runner.py
-# ---------------------------------------------------------------------------
-cat > "$REPO_ROOT/app_retrieval/evaluation/runner.py" <<'PYEOF'
-"""Core evaluation loop for the RAG evaluation harness (NGAIP-363)."""
+    # -------------------------------------------------------------------------
+    # evaluation/runner.py
+    # -------------------------------------------------------------------------
+    ensure(
+        BACKEND / "app_retrieval" / "evaluation" / "runner.py",
+        """\
+\"\"\"Core evaluation loop for the RAG evaluation harness (NGAIP-363).\"\"\"
 from __future__ import annotations
 
 import json
@@ -357,7 +427,7 @@ class EvalRunner:
 
     async def run(self) -> dict:
         cfg = self.config
-        # Seeds are scaffolding — future steps (NGAIP-365+) will add gold-set sampling.
+        # Seeds are scaffolding -- future steps (NGAIP-365+) will add gold-set sampling.
         random.seed(cfg.seed)
         np.random.seed(cfg.seed)
 
@@ -395,7 +465,7 @@ class EvalRunner:
                 chunks = await retriever.retrieve(question, folder, cfg.top_k)
             contexts = [c.get("text", "") for c in chunks]
 
-            # Placeholder answer — LLM call is outside this harness scope for NGAIP-363.
+            # Placeholder answer -- LLM call is outside this harness scope for NGAIP-363.
             answer = item.get("answer", "")
 
             row: dict = {"question": question}
@@ -411,14 +481,16 @@ class EvalRunner:
         CsvReporter().write(cfg, results, output_dir)
 
         return report
-PYEOF
-echo "[363-transfer] Created: app_retrieval/evaluation/runner.py"
+""",
+    )
 
-# ---------------------------------------------------------------------------
-# management/commands/rag_eval.py
-# ---------------------------------------------------------------------------
-cat > "$REPO_ROOT/app_retrieval/management/commands/rag_eval.py" <<'PYEOF'
-"""Management command: python manage.py rag_eval run --config <path>"""
+    # -------------------------------------------------------------------------
+    # management/commands/rag_eval.py
+    # -------------------------------------------------------------------------
+    ensure(
+        BACKEND / "app_retrieval" / "management" / "commands" / "rag_eval.py",
+        """\
+\"\"\"Management command: python manage.py rag_eval run --config <path>\"\"\"
 from __future__ import annotations
 
 import asyncio
@@ -458,13 +530,15 @@ class Command(BaseCommand):
         for metric, score in aggregate.items():
             self.stdout.write(f"  {metric}: {score:.4f}")
         self.stdout.write(f"Reports written to: {config.output_dir}")
-PYEOF
-echo "[363-transfer] Created: app_retrieval/management/commands/rag_eval.py"
+""",
+    )
 
-# ---------------------------------------------------------------------------
-# evaluation/config/eval_default.yaml
-# ---------------------------------------------------------------------------
-cat > "$REPO_ROOT/app_retrieval/evaluation/config/eval_default.yaml" <<'PYEOF'
+    # -------------------------------------------------------------------------
+    # evaluation/config/eval_default.yaml
+    # -------------------------------------------------------------------------
+    ensure(
+        BACKEND / "app_retrieval" / "evaluation" / "config" / "eval_default.yaml",
+        """\
 seed: 42
 folder_ids: []
 retriever_type: semantic
@@ -477,14 +551,16 @@ metrics:
   - citation_accuracy
   - response_accuracy
 eval_user_id: null
-PYEOF
-echo "[363-transfer] Created: app_retrieval/evaluation/config/eval_default.yaml"
+""",
+    )
 
-# ---------------------------------------------------------------------------
-# evaluation/config/eval_ci_fixture.yaml
-# ---------------------------------------------------------------------------
-cat > "$REPO_ROOT/app_retrieval/evaluation/config/eval_ci_fixture.yaml" <<'PYEOF'
-# CI fixture — uses stub metrics, empty folder_ids, no real data.
+    # -------------------------------------------------------------------------
+    # evaluation/config/eval_ci_fixture.yaml
+    # -------------------------------------------------------------------------
+    ensure(
+        BACKEND / "app_retrieval" / "evaluation" / "config" / "eval_ci_fixture.yaml",
+        """\
+# CI fixture -- uses stub metrics, empty folder_ids, no real data.
 seed: 42
 folder_ids: []
 retriever_type: semantic
@@ -497,22 +573,26 @@ metrics:
   - citation_accuracy
   - response_accuracy
 eval_user_id: null
-PYEOF
-echo "[363-transfer] Created: app_retrieval/evaluation/config/eval_ci_fixture.yaml"
+""",
+    )
 
-# ---------------------------------------------------------------------------
-# evaluation/config/ci_gold.jsonl
-# ---------------------------------------------------------------------------
-cat > "$REPO_ROOT/app_retrieval/evaluation/config/ci_gold.jsonl" <<'PYEOF'
+    # -------------------------------------------------------------------------
+    # evaluation/config/ci_gold.jsonl
+    # -------------------------------------------------------------------------
+    ensure(
+        BACKEND / "app_retrieval" / "evaluation" / "config" / "ci_gold.jsonl",
+        """\
 {"question": "What is the standard inspection interval for a turbofan engine?", "answer": "The standard interval is defined in the maintenance manual.", "ground_truth": "Refer to the engine maintenance manual for the authoritative interval."}
 {"question": "Which materials are approved for high-pressure compressor blade repair?", "answer": "Approved materials are listed in the approved parts list.", "ground_truth": "See the approved repair manual for the complete list of materials."}
-PYEOF
-echo "[363-transfer] Created: app_retrieval/evaluation/config/ci_gold.jsonl"
+""",
+    )
 
-# ---------------------------------------------------------------------------
-# tests/app_retrieval/test_eval_runner.py
-# ---------------------------------------------------------------------------
-cat > "$REPO_ROOT/tests/app_retrieval/test_eval_runner.py" <<'PYEOF'
+    # -------------------------------------------------------------------------
+    # tests/app_retrieval/test_eval_runner.py
+    # -------------------------------------------------------------------------
+    ensure(
+        BACKEND / "tests" / "app_retrieval" / "test_eval_runner.py",
+        '''\
 """Tests for the RAG evaluation harness (NGAIP-363).
 
 Coverage:
@@ -522,7 +602,7 @@ Coverage:
   - Seeding reproducibility: same seed -> same order
   - EvalRunner.run(): end-to-end async integration (mocked retrieval)
 
-These tests run in-process with Django's test infrastructure.
+These tests run in-process with Django\'s test infrastructure.
 Real retrieval calls are mocked so no DB or vector store is needed.
 """
 from __future__ import annotations
@@ -556,7 +636,7 @@ def _make_config(**overrides) -> EvalConfig:
 
 
 def _write_gold(path: Path, items: list[dict]) -> None:
-    path.write_text("\n".join(json.dumps(item) for item in items))
+    path.write_text("\\n".join(json.dumps(item) for item in items))
 
 
 # ---------------------------------------------------------------------------
@@ -681,7 +761,7 @@ class TestRetrieverDispatch:
             {"pk": 2, "text": "chunk B", "score": 0.7},
         ]
         keyword_chunks = [
-            {"pk": 2, "text": "chunk B", "score": 0.6},  # duplicate — lower score
+            {"pk": 2, "text": "chunk B", "score": 0.6},  # duplicate -- lower score
             {"pk": 3, "text": "chunk C", "score": 0.5},
         ]
 
@@ -844,13 +924,17 @@ class TestEvalRunnerEndToEnd:
             await runner.run()
 
         fake_retriever.retrieve.assert_not_awaited()
-PYEOF
-echo "[363-transfer] Created: tests/app_retrieval/test_eval_runner.py"
+''',
+    )
 
-echo ""
-echo "[363-transfer] Complete. Verify with:"
-echo "  cd backend"
-echo "  pytest tests/app_retrieval/test_eval_runner.py -v"
-echo "  python manage.py rag_eval run --config app_retrieval/evaluation/config/eval_ci_fixture.yaml"
-echo "  ls /tmp/rag_eval_output/    # expect report.json  report.csv"
-echo "  python -c \"import json; d=json.load(open('/tmp/rag_eval_output/report.json')); assert 'results' in d\""
+    print("")
+    print("[363-transfer] Complete. Verify with:")
+    print("  cd backend")
+    print("  pytest tests/app_retrieval/test_eval_runner.py -v")
+    print("  python manage.py rag_eval run --config app_retrieval/evaluation/config/eval_ci_fixture.yaml")
+    print("  ls /tmp/rag_eval_output/    # expect report.json  report.csv")
+    print("  python -c \"import json; d=json.load(open('/tmp/rag_eval_output/report.json')); assert 'results' in d\"")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,34 +1,37 @@
-#!/usr/bin/env bash
-set -euo pipefail
+"""
+ngaip-365-transfer.py
+Transfers NGAIP-365 context relevancy metric to the runtime machine.
+Idempotent: safe to run multiple times.
+Run from: backend/ project root on the target machine (same CWD as the .sh).
+Cross-platform: Windows cmd.exe, macOS, Linux.
+"""
+import subprocess
+import sys
+from pathlib import Path
 
-REPO_ROOT="$(pwd)"
-echo "[365-transfer] Starting transfer into: $REPO_ROOT"
-
-# ---------------------------------------------------------------------------
-# Directories
-# ---------------------------------------------------------------------------
-mkdir -p "$REPO_ROOT/app_retrieval/evaluation/metrics"
-mkdir -p "$REPO_ROOT/app_retrieval/evaluation/config"
-mkdir -p "$REPO_ROOT/tests/app_retrieval"
-
-# ---------------------------------------------------------------------------
-# 1. app_retrieval/evaluation/__init__.py
-# ---------------------------------------------------------------------------
-touch "$REPO_ROOT/app_retrieval/evaluation/__init__.py"
-echo "[365-transfer] Ensured: app_retrieval/evaluation/__init__.py"
 
 # ---------------------------------------------------------------------------
-# 2. app_retrieval/evaluation/metrics/__init__.py
+# Helpers
 # ---------------------------------------------------------------------------
-touch "$REPO_ROOT/app_retrieval/evaluation/metrics/__init__.py"
-echo "[365-transfer] Ensured: app_retrieval/evaluation/metrics/__init__.py"
+
+def ensure(path: Path, content: str) -> None:
+    """Write content to path, creating parent dirs as needed. Always overwrites."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def touch(path: Path) -> None:
+    """Create an empty file (and parent dirs) if it does not exist."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        path.write_text("", encoding="utf-8")
+
 
 # ---------------------------------------------------------------------------
-# 3. app_retrieval/evaluation/metrics/base.py
-#    (Skip if 363 harness already written it — touch only if missing)
+# Embedded file content
 # ---------------------------------------------------------------------------
-if [ ! -f "$REPO_ROOT/app_retrieval/evaluation/metrics/base.py" ]; then
-cat > "$REPO_ROOT/app_retrieval/evaluation/metrics/base.py" << 'PYEOF'
+
+BASE_PY = '''\
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -47,18 +50,9 @@ class MetricModule(ABC):
     ) -> dict:
         """Return a dict mapping metric name(s) to float scores."""
         ...
-PYEOF
-echo "[365-transfer] Created: app_retrieval/evaluation/metrics/base.py"
-else
-echo "[365-transfer] Skipped: base.py already exists (from 363)"
-fi
+'''
 
-# ---------------------------------------------------------------------------
-# 4. app_retrieval/evaluation/config/metrics_spec.yaml
-#    (Stub pending NGAIP-415 sign-off — skip if 415 already wrote it)
-# ---------------------------------------------------------------------------
-if [ ! -f "$REPO_ROOT/app_retrieval/evaluation/config/metrics_spec.yaml" ]; then
-cat > "$REPO_ROOT/app_retrieval/evaluation/config/metrics_spec.yaml" << 'PYEOF'
+METRICS_SPEC_YAML = '''\
 # metrics_spec.yaml — threshold stub pending NGAIP-415 sign-off
 # Values here are placeholders based on the design spike (NGAIP-412 ADR).
 # NGAIP-415 will replace these with calibrated, stakeholder-approved thresholds.
@@ -75,16 +69,9 @@ metrics:
     threshold: 0.7
     description: "Semantic similarity between generated answer and gold answer"
     ticket: NGAIP-366
-PYEOF
-echo "[365-transfer] Created: app_retrieval/evaluation/config/metrics_spec.yaml"
-else
-echo "[365-transfer] Skipped: metrics_spec.yaml already exists (from 415)"
-fi
+'''
 
-# ---------------------------------------------------------------------------
-# 5. app_retrieval/evaluation/metrics/context_relevancy.py
-# ---------------------------------------------------------------------------
-cat > "$REPO_ROOT/app_retrieval/evaluation/metrics/context_relevancy.py" << 'PYEOF'
+CONTEXT_RELEVANCY_PY = '''\
 """
 Context relevancy metric — NGAIP-365.
 
@@ -107,7 +94,7 @@ def _load_threshold() -> float:
     """Read threshold from metrics_spec.yaml.
 
     Handles both formats:
-      - List format (NGAIP-415): metrics is a list of dicts with 'id' keys
+      - List format (NGAIP-415): metrics is a list of dicts with \'id\' keys
       - Dict format (legacy stub): metrics is keyed by metric name
     Falls back to 0.7 when value is TBD or missing.
     """
@@ -121,7 +108,7 @@ def _load_threshold() -> float:
         for entry in metrics:
             if entry.get("id") in ("context_relevancy_at_k", "context_relevancy"):
                 val = str(entry.get("threshold", {}).get("pass", "TBD"))
-                m = _re.search(r"[\d.]+", val)
+                m = _re.search(r"[\\d.]+", val)
                 return float(m.group()) if m else 0.7
         return 0.7
     try:
@@ -169,19 +156,9 @@ class ContextRelevancyMetric(MetricModule):
             "context_relevancy_pass": overlap >= self.threshold,
             "metric_version": "1.0",
         }
-PYEOF
-echo "[365-transfer] Created: app_retrieval/evaluation/metrics/context_relevancy.py"
+'''
 
-# ---------------------------------------------------------------------------
-# 6. tests/app_retrieval/__init__.py
-# ---------------------------------------------------------------------------
-touch "$REPO_ROOT/tests/app_retrieval/__init__.py"
-echo "[365-transfer] Ensured: tests/app_retrieval/__init__.py"
-
-# ---------------------------------------------------------------------------
-# 7. tests/app_retrieval/test_metric_context_relevancy.py
-# ---------------------------------------------------------------------------
-cat > "$REPO_ROOT/tests/app_retrieval/test_metric_context_relevancy.py" << 'PYEOF'
+TEST_CONTEXT_RELEVANCY_PY = '''\
 """
 Tests for ContextRelevancyMetric and _token_overlap helper — NGAIP-365.
 
@@ -251,7 +228,7 @@ def test_token_overlap_partial():
 
 
 def test_token_overlap_missing_context_key():
-    """Chunks without 'context' key are treated as empty string — no crash."""
+    """Chunks without \'context\' key are treated as empty string — no crash."""
     gold = ["quick brown fox"]
     chunks = [{"score": 0.9, "asset_id": "a1"}]
     assert _token_overlap(gold, chunks, k=1) == 0.0
@@ -339,14 +316,97 @@ async def test_metric_score_is_rounded():
     )
     assert isinstance(result["context_relevancy"], float)
     assert len(str(result["context_relevancy"]).split(".")[-1]) <= 4
-PYEOF
-echo "[365-transfer] Created: tests/app_retrieval/test_metric_context_relevancy.py"
+'''
+
 
 # ---------------------------------------------------------------------------
-# Done
+# Main
 # ---------------------------------------------------------------------------
-echo ""
-echo "[365-transfer] Complete. Verify with:"
-echo "  cd backend"
-echo "  pytest tests/app_retrieval/test_metric_context_relevancy.py -v"
-echo "  python -c \"from app_retrieval.evaluation.metrics.context_relevancy import ContextRelevancyMetric; m = ContextRelevancyMetric(); print('threshold:', m.threshold); assert m.name == 'context_relevancy'; print('OK')\""
+
+def main() -> None:
+    # The bash script sets REPO_ROOT="$(pwd)" and expects to be run from
+    # inside the backend/ directory (same as manage.py lives).
+    BACKEND = Path.cwd()
+    print(f"[365-transfer] Starting transfer into: {BACKEND}")
+
+    # -----------------------------------------------------------------------
+    # Directories
+    # -----------------------------------------------------------------------
+    (BACKEND / "app_retrieval" / "evaluation" / "metrics").mkdir(parents=True, exist_ok=True)
+    (BACKEND / "app_retrieval" / "evaluation" / "config").mkdir(parents=True, exist_ok=True)
+    (BACKEND / "tests" / "app_retrieval").mkdir(parents=True, exist_ok=True)
+
+    # -----------------------------------------------------------------------
+    # 1. app_retrieval/evaluation/__init__.py
+    # -----------------------------------------------------------------------
+    touch(BACKEND / "app_retrieval" / "evaluation" / "__init__.py")
+    print("[365-transfer] Ensured: app_retrieval/evaluation/__init__.py")
+
+    # -----------------------------------------------------------------------
+    # 2. app_retrieval/evaluation/metrics/__init__.py
+    # -----------------------------------------------------------------------
+    touch(BACKEND / "app_retrieval" / "evaluation" / "metrics" / "__init__.py")
+    print("[365-transfer] Ensured: app_retrieval/evaluation/metrics/__init__.py")
+
+    # -----------------------------------------------------------------------
+    # 3. app_retrieval/evaluation/metrics/base.py
+    #    (Skip if 363 harness already wrote it)
+    # -----------------------------------------------------------------------
+    base_path = BACKEND / "app_retrieval" / "evaluation" / "metrics" / "base.py"
+    if not base_path.exists():
+        ensure(base_path, BASE_PY)
+        print("[365-transfer] Created: app_retrieval/evaluation/metrics/base.py")
+    else:
+        print("[365-transfer] Skipped: base.py already exists (from 363)")
+
+    # -----------------------------------------------------------------------
+    # 4. app_retrieval/evaluation/config/metrics_spec.yaml
+    #    (Skip if 415 already wrote it)
+    # -----------------------------------------------------------------------
+    spec_path = BACKEND / "app_retrieval" / "evaluation" / "config" / "metrics_spec.yaml"
+    if not spec_path.exists():
+        ensure(spec_path, METRICS_SPEC_YAML)
+        print("[365-transfer] Created: app_retrieval/evaluation/config/metrics_spec.yaml")
+    else:
+        print("[365-transfer] Skipped: metrics_spec.yaml already exists (from 415)")
+
+    # -----------------------------------------------------------------------
+    # 5. app_retrieval/evaluation/metrics/context_relevancy.py  (always write)
+    # -----------------------------------------------------------------------
+    ensure(
+        BACKEND / "app_retrieval" / "evaluation" / "metrics" / "context_relevancy.py",
+        CONTEXT_RELEVANCY_PY,
+    )
+    print("[365-transfer] Created: app_retrieval/evaluation/metrics/context_relevancy.py")
+
+    # -----------------------------------------------------------------------
+    # 6. tests/app_retrieval/__init__.py
+    # -----------------------------------------------------------------------
+    touch(BACKEND / "tests" / "app_retrieval" / "__init__.py")
+    print("[365-transfer] Ensured: tests/app_retrieval/__init__.py")
+
+    # -----------------------------------------------------------------------
+    # 7. tests/app_retrieval/test_metric_context_relevancy.py  (always write)
+    # -----------------------------------------------------------------------
+    ensure(
+        BACKEND / "tests" / "app_retrieval" / "test_metric_context_relevancy.py",
+        TEST_CONTEXT_RELEVANCY_PY,
+    )
+    print("[365-transfer] Created: tests/app_retrieval/test_metric_context_relevancy.py")
+
+    # -----------------------------------------------------------------------
+    # Done
+    # -----------------------------------------------------------------------
+    print()
+    print("[365-transfer] Complete. Verify with:")
+    print("  cd backend")
+    print("  pytest tests/app_retrieval/test_metric_context_relevancy.py -v")
+    print(
+        "  python -c \"from app_retrieval.evaluation.metrics.context_relevancy import "
+        "ContextRelevancyMetric; m = ContextRelevancyMetric(); "
+        "print('threshold:', m.threshold); assert m.name == 'context_relevancy'; print('OK')\""
+    )
+
+
+if __name__ == "__main__":
+    main()

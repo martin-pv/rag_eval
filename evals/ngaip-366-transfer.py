@@ -1,23 +1,59 @@
-#!/usr/bin/env bash
-set -euo pipefail
+"""ngaip-366-transfer.py — cross-platform transfer script (Windows/macOS/Linux).
+Run from repo root: python ngaip-366-transfer.py
 
-BRANCH="ngaip-366-response-accuracy-metric"
+Produces 3 files:
+  ENCHS-PW-GenAI-Backend/app_retrieval/evaluation/metrics/response_accuracy.py  (replaces stub)
+  ENCHS-PW-GenAI-Backend/app_retrieval/evaluation/annotation_exporter.py        (new)
+  ENCHS-PW-GenAI-Backend/tests/app_retrieval/test_metric_response_accuracy.py   (new)
 
-echo "[NGAIP-366] Checking out branch $BRANCH..."
-git checkout main
-git pull
-git checkout -b "$BRANCH" 2>/dev/null || git checkout "$BRANCH"
+Safe to run twice — all writes overwrite cleanly.
+"""
+import subprocess
+import sys
+from pathlib import Path
 
-echo "[NGAIP-366] Creating directories..."
-mkdir -p ENCHS-PW-GenAI-Backend/app_retrieval/evaluation/metrics
-mkdir -p ENCHS-PW-GenAI-Backend/tests/app_retrieval
-touch ENCHS-PW-GenAI-Backend/tests/__init__.py
-touch ENCHS-PW-GenAI-Backend/tests/app_retrieval/__init__.py
+BRANCH = "ngaip-366-response-accuracy-metric"
+BACKEND = Path.cwd() / "ENCHS-PW-GenAI-Backend"
+
+
+def git(*args):
+    subprocess.run(["git", *args], check=True)
+
+
+def git_or(*args):
+    return subprocess.run(["git", *args]).returncode == 0
+
+
+def ensure(path, content):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def touch(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch()
+
+
+# ---------------------------------------------------------------------------
+# Branch setup
+# ---------------------------------------------------------------------------
+print(f"[NGAIP-366] Checking out branch {BRANCH}...")
+git("checkout", "main")
+git("pull")
+if not git_or("checkout", "-b", BRANCH):
+    git("checkout", BRANCH)
+
+# ---------------------------------------------------------------------------
+# Directories and __init__ files
+# ---------------------------------------------------------------------------
+print("[NGAIP-366] Creating directories...")
+touch(BACKEND / "tests" / "__init__.py")
+touch(BACKEND / "tests" / "app_retrieval" / "__init__.py")
 
 # ---------------------------------------------------------------------------
 # response_accuracy.py  (replaces stub from NGAIP-363)
 # ---------------------------------------------------------------------------
-cat > ENCHS-PW-GenAI-Backend/app_retrieval/evaluation/metrics/response_accuracy.py <<'PYEOF'
+RESPONSE_ACCURACY_PY = '''\
 """Response accuracy metric — LLM-as-judge implementation (NGAIP-366).
 
 Replaces the stub from NGAIP-363. Scores three criteria via an LLM judge using
@@ -48,7 +84,7 @@ _SPEC_PATH = Path(__file__).parent.parent / "config" / "metrics_spec.yaml"
 # Ternary scale per NGAIP-415 spec: 0=fail, 0.5=partial, 1=pass.
 # Composite: (factuality + completeness + groundedness) / 3 → already in [0, 1].
 _JUDGE_PROMPT_TEMPLATE = """\
-You are evaluating an AI assistant's answer. Score each criterion using ONLY these values:
+You are evaluating an AI assistant\'s answer. Score each criterion using ONLY these values:
   0   = fail (clearly wrong / missing / unsupported)
   0.5 = partial (somewhat correct but incomplete or only partially supported)
   1   = pass (fully correct, complete, and supported)
@@ -78,7 +114,7 @@ def _load_accuracy_threshold() -> float:
     for entry in spec["metrics"]:
         if entry["id"] == "response_accuracy":
             pass_str = str(entry["threshold"].get("pass", "0.70"))
-            match = re.search(r"[\d.]+", pass_str)
+            match = re.search(r"[\\d.]+", pass_str)
             return float(match.group()) if match else 0.70
     return 0.70
 
@@ -161,12 +197,18 @@ class ResponseAccuracyMetric(MetricModule):
             "metric_version": METRIC_VERSION,
             "note": "human annotation required",
         }
-PYEOF
+'''
+
+ensure(
+    BACKEND / "app_retrieval" / "evaluation" / "metrics" / "response_accuracy.py",
+    RESPONSE_ACCURACY_PY,
+)
+print("[NGAIP-366] Created: app_retrieval/evaluation/metrics/response_accuracy.py")
 
 # ---------------------------------------------------------------------------
 # annotation_exporter.py
 # ---------------------------------------------------------------------------
-cat > ENCHS-PW-GenAI-Backend/app_retrieval/evaluation/annotation_exporter.py <<'PYEOF'
+ANNOTATION_EXPORTER_PY = '''\
 """Annotation exporter for human dual-annotation workflow (NGAIP-366).
 
 Exports a harness eval case as a structured Markdown file so two human raters
@@ -192,8 +234,8 @@ def export_annotation_case(
         output_dir: Directory to write cases/ subdirectory into.
         question_id: Unique identifier for this question (used as filename).
         question: The evaluation question.
-        answer: The model's answer to score.
-        contexts: Retrieved chunks as dicts with 'context' and 'asset_id' keys.
+        answer: The model\'s answer to score.
+        contexts: Retrieved chunks as dicts with \'context\' and \'asset_id\' keys.
         gold_answer: Reference answer from the gold dataset.
 
     Returns:
@@ -204,8 +246,8 @@ def export_annotation_case(
     safe_id = Path(question_id).name.replace("/", "_")
     case_path = cases_dir / f"{safe_id}.md"
 
-    context_block = "\n\n".join(
-        f"**Chunk {i + 1}** (`{c.get('asset_id', '?')}`):\n{c.get('context', '')}"
+    context_block = "\\n\\n".join(
+        f"**Chunk {i + 1}** (`{c.get(\'asset_id\', \'?\')}`):\\n{c.get(\'context\', \'\')}"
         for i, c in enumerate(contexts[:5])
     )
 
@@ -217,22 +259,28 @@ def export_annotation_case(
 | Groundedness | | |"""
 
     case_path.write_text(
-        f"# Case: {question_id}\n\n"
-        f"## Question\n{question}\n\n"
-        f"## Gold Answer\n{gold_answer or '_not provided_'}\n\n"
-        f"## Model Answer\n{answer}\n\n"
-        f"## Retrieved Context\n{context_block}\n\n"
-        f"---\n"
-        f"## Rater 1\n\n{rater_table}\n\n"
-        f"## Rater 2\n\n{rater_table}\n"
+        f"# Case: {question_id}\\n\\n"
+        f"## Question\\n{question}\\n\\n"
+        f"## Gold Answer\\n{gold_answer or \'_not provided_\'}\\n\\n"
+        f"## Model Answer\\n{answer}\\n\\n"
+        f"## Retrieved Context\\n{context_block}\\n\\n"
+        f"---\\n"
+        f"## Rater 1\\n\\n{rater_table}\\n\\n"
+        f"## Rater 2\\n\\n{rater_table}\\n"
     )
     return case_path
-PYEOF
+'''
+
+ensure(
+    BACKEND / "app_retrieval" / "evaluation" / "annotation_exporter.py",
+    ANNOTATION_EXPORTER_PY,
+)
+print("[NGAIP-366] Created: app_retrieval/evaluation/annotation_exporter.py")
 
 # ---------------------------------------------------------------------------
 # tests/app_retrieval/test_metric_response_accuracy.py
 # ---------------------------------------------------------------------------
-cat > ENCHS-PW-GenAI-Backend/tests/app_retrieval/test_metric_response_accuracy.py <<'PYEOF'
+TEST_METRIC_PY = '''\
 """Tests for ResponseAccuracyMetric and export_annotation_case (NGAIP-366).
 
 LLM calls are mocked — no live API needed.
@@ -446,10 +494,16 @@ class TestExportAnnotationCase:
         export_annotation_case(**kwargs)
         path = export_annotation_case(**kwargs)
         assert path.exists()
-PYEOF
+'''
 
-echo ""
-echo "[NGAIP-366] Done. Verify with:"
-echo "  cd ENCHS-PW-GenAI-Backend"
-echo "  pytest tests/app_retrieval/test_metric_response_accuracy.py -v"
-echo "  # Expect 18 tests passing"
+ensure(
+    BACKEND / "tests" / "app_retrieval" / "test_metric_response_accuracy.py",
+    TEST_METRIC_PY,
+)
+print("[NGAIP-366] Created: tests/app_retrieval/test_metric_response_accuracy.py")
+
+print("")
+print("[NGAIP-366] Done. Verify with:")
+print("  cd ENCHS-PW-GenAI-Backend")
+print("  pytest tests/app_retrieval/test_metric_response_accuracy.py -v")
+print("  # Expect 18 tests passing")

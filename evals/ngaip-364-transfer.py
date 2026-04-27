@@ -1,25 +1,74 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/usr/bin/env python3
+"""NGAIP-364 Transfer Script -- cross-platform (Windows/macOS/Linux)
+Usage: python ngaip-364-transfer.py  (run from repo root)
 
-BRANCH="ngaip-364-citation-accuracy-metric"
+Produces 2 files:
+  ENCHS-PW-GenAI-Backend/app_retrieval/evaluation/metrics/citation_accuracy.py  (replaces stub)
+  ENCHS-PW-GenAI-Backend/tests/app_retrieval/test_metric_citation_accuracy.py   (new)
 
-echo "[NGAIP-364] Checking out branch $BRANCH..."
-git checkout main
-git pull
-git checkout -b "$BRANCH" 2>/dev/null || git checkout "$BRANCH"
+Safe to run twice -- all writes overwrite cleanly.
+"""
+import subprocess
+import sys
+from pathlib import Path
 
-echo "[NGAIP-364] Creating directories..."
-mkdir -p ENCHS-PW-GenAI-Backend/app_retrieval/evaluation/metrics
-mkdir -p ENCHS-PW-GenAI-Backend/tests/app_retrieval
-touch ENCHS-PW-GenAI-Backend/app_retrieval/evaluation/__init__.py
-touch ENCHS-PW-GenAI-Backend/app_retrieval/evaluation/metrics/__init__.py
-touch ENCHS-PW-GenAI-Backend/tests/__init__.py
-touch ENCHS-PW-GenAI-Backend/tests/app_retrieval/__init__.py
+BRANCH = "ngaip-364-citation-accuracy-metric"
+BACKEND = Path.cwd() / "ENCHS-PW-GenAI-Backend"
 
-# ---------------------------------------------------------------------------
-# citation_accuracy.py  (replaces stub from NGAIP-363)
-# ---------------------------------------------------------------------------
-cat > ENCHS-PW-GenAI-Backend/app_retrieval/evaluation/metrics/citation_accuracy.py <<'PYEOF'
+
+def git(*args):
+    subprocess.run(["git", *args], check=True)
+
+
+def git_or(*args):
+    return subprocess.run(["git", *args]).returncode == 0
+
+
+def ensure(path: Path, content: str):
+    """Write file, creating parent dirs. Idempotent -- overwrites if exists."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    print(f"  Created: {path}")
+
+
+def touch(path: Path):
+    """Create empty file (and parent dirs) if it does not exist."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        path.touch()
+        print(f"  Touched: {path}")
+    else:
+        print(f"  Already exists: {path}")
+
+
+def main():
+    print(f"[NGAIP-364] Switching to branch {BRANCH}...")
+    git("checkout", "main")
+    git("pull")
+    if not git_or("checkout", "-b", BRANCH):
+        git("checkout", BRANCH)
+
+    print("[NGAIP-364] Creating directories...")
+    for d in [
+        BACKEND / "app_retrieval" / "evaluation" / "metrics",
+        BACKEND / "tests" / "app_retrieval",
+    ]:
+        d.mkdir(parents=True, exist_ok=True)
+
+    for init in [
+        BACKEND / "app_retrieval" / "evaluation" / "__init__.py",
+        BACKEND / "app_retrieval" / "evaluation" / "metrics" / "__init__.py",
+        BACKEND / "tests" / "__init__.py",
+        BACKEND / "tests" / "app_retrieval" / "__init__.py",
+    ]:
+        touch(init)
+
+    # -------------------------------------------------------------------------
+    # citation_accuracy.py  (replaces stub from NGAIP-363)
+    # -------------------------------------------------------------------------
+    ensure(
+        BACKEND / "app_retrieval" / "evaluation" / "metrics" / "citation_accuracy.py",
+        """\
 from __future__ import annotations
 
 from pathlib import Path
@@ -38,7 +87,7 @@ _DEFAULTS = {
 
 
 def _load_thresholds() -> dict:
-    """Read citation thresholds from metrics_spec.yaml; fall back to defaults for TBD/missing values."""
+    \"\"\"Read citation thresholds from metrics_spec.yaml; fall back to defaults for TBD/missing values.\"\"\"
     try:
         spec = yaml.safe_load(_spec_path.read_text())
     except FileNotFoundError:
@@ -68,11 +117,11 @@ def _citation_overlap(
     retrieved_asset_ids: list[str],
     tau: float = 0.5,
 ) -> tuple[float, float, float]:
-    """
+    \"\"\"
     Returns (precision, recall, hallucination_rate).
     Hallucination: cited asset_id not in retrieved set AND not in gold.
     tau is reserved for future span-level overlap -- currently doc-level match.
-    """
+    \"\"\"
     if not model_asset_ids:
         return 0.0, 0.0, 0.0
 
@@ -126,12 +175,15 @@ class CitationAccuracyMetric(MetricModule):
             "citation_hallucination_pass": hallucination_rate <= self.hallucination_rate_max,
             "metric_version": "1.0",
         }
-PYEOF
+""",
+    )
 
-# ---------------------------------------------------------------------------
-# test_metric_citation_accuracy.py
-# ---------------------------------------------------------------------------
-cat > ENCHS-PW-GenAI-Backend/tests/app_retrieval/test_metric_citation_accuracy.py <<'PYEOF'
+    # -------------------------------------------------------------------------
+    # test_metric_citation_accuracy.py
+    # -------------------------------------------------------------------------
+    ensure(
+        BACKEND / "tests" / "app_retrieval" / "test_metric_citation_accuracy.py",
+        """\
 import pytest
 
 from app_retrieval.evaluation.metrics.citation_accuracy import (
@@ -214,10 +266,15 @@ async def test_metric_score_hallucination_fails():
     assert result["citation_hallucination_rate"] == 1.0
     assert result["citation_precision_pass"] is False
     assert result["citation_hallucination_pass"] is False
-PYEOF
+""",
+    )
 
-echo ""
-echo "[NGAIP-364] Done. Verify with:"
-echo "  cd ENCHS-PW-GenAI-Backend"
-echo "  pytest tests/app_retrieval/test_metric_citation_accuracy.py -v"
-echo "  # Expect 8 tests passing, including test_precision_wrong_page (ticket AC)"
+    print("")
+    print("[NGAIP-364] Done. Verify with:")
+    print("  cd ENCHS-PW-GenAI-Backend")
+    print("  pytest tests/app_retrieval/test_metric_citation_accuracy.py -v")
+    print("  # Expect 8 tests passing, including test_precision_wrong_page (ticket AC)")
+
+
+if __name__ == "__main__":
+    main()

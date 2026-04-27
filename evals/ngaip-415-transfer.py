@@ -1,24 +1,61 @@
-#!/usr/bin/env bash
-set -euo pipefail
+"""ngaip-415-transfer.py — cross-platform transfer script (Windows/macOS/Linux).
+Run from repo root: python ngaip-415-transfer.py
 
-BRANCH="ngaip-415-metrics-success-criteria"
+Produces 4 files (no Python source code — YAML, JSON schema, Markdown, pytest):
+  ENCHS-PW-GenAI-Backend/app_retrieval/evaluation/config/metrics_spec.yaml
+  ENCHS-PW-GenAI-Backend/app_retrieval/evaluation/config/eval_report.schema.json
+  ENCHS-PW-GenAI-Backend/docs/metrics_spec.md
+  ENCHS-PW-GenAI-Backend/tests/app_retrieval/test_metrics_spec.py
 
-echo "[NGAIP-415] Checking out branch $BRANCH..."
-git checkout main
-git pull
-git checkout -b "$BRANCH" 2>/dev/null || git checkout "$BRANCH"
+Safe to run twice — all writes overwrite cleanly.
+"""
+import json
+import subprocess
+import sys
+from pathlib import Path
 
-echo "[NGAIP-415] Creating directories..."
-mkdir -p ENCHS-PW-GenAI-Backend/app_retrieval/evaluation/config
-mkdir -p ENCHS-PW-GenAI-Backend/docs
-mkdir -p ENCHS-PW-GenAI-Backend/tests/app_retrieval
-touch ENCHS-PW-GenAI-Backend/tests/__init__.py
-touch ENCHS-PW-GenAI-Backend/tests/app_retrieval/__init__.py
+BRANCH = "ngaip-415-metrics-success-criteria"
+BACKEND = Path.cwd() / "ENCHS-PW-GenAI-Backend"
+
+
+def git(*args):
+    subprocess.run(["git", *args], check=True)
+
+
+def git_or(*args):
+    return subprocess.run(["git", *args]).returncode == 0
+
+
+def ensure(path, content):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def touch(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch()
+
+
+# ---------------------------------------------------------------------------
+# Branch setup
+# ---------------------------------------------------------------------------
+print(f"[NGAIP-415] Checking out branch {BRANCH}...")
+git("checkout", "main")
+git("pull")
+if not git_or("checkout", "-b", BRANCH):
+    git("checkout", BRANCH)
+
+# ---------------------------------------------------------------------------
+# Directories and __init__ files
+# ---------------------------------------------------------------------------
+print("[NGAIP-415] Creating directories...")
+touch(BACKEND / "tests" / "__init__.py")
+touch(BACKEND / "tests" / "app_retrieval" / "__init__.py")
 
 # ---------------------------------------------------------------------------
 # metrics_spec.yaml
 # ---------------------------------------------------------------------------
-cat > ENCHS-PW-GenAI-Backend/app_retrieval/evaluation/config/metrics_spec.yaml <<'PYEOF'
+METRICS_SPEC_YAML = """\
 # metrics_spec.yaml — NGAIP-415
 # RAG Evaluation: Metrics and Success Criteria
 #
@@ -326,133 +363,233 @@ metrics:
       direction: lower_is_better
     measurement: automatic
     owner_ticket: NGAIP-363
-PYEOF
+"""
+
+ensure(
+    BACKEND / "app_retrieval" / "evaluation" / "config" / "metrics_spec.yaml",
+    METRICS_SPEC_YAML,
+)
+print("[NGAIP-415] Created: app_retrieval/evaluation/config/metrics_spec.yaml")
 
 # ---------------------------------------------------------------------------
-# eval_report.schema.json — written via Python to avoid heredoc/JSON conflicts
+# eval_report.schema.json — built as a dict and serialized via json.dumps
 # ---------------------------------------------------------------------------
-echo "[NGAIP-415] Writing eval_report.schema.json via Python..."
-python3 - <<'PYEOF'
-import json, pathlib
+print("[NGAIP-415] Writing eval_report.schema.json...")
 
 schema = {
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "eval_report.schema.json",
-  "title": "RAG Eval Report",
-  "description": "Schema for report.json produced by the NGAIP-363 harness. Versioned here (NGAIP-415) so metric owners can depend on a stable contract.",
-  "type": "object",
-  "required": ["eval_version", "metrics_spec_version", "config", "timestamp", "results", "aggregate_scores"],
-  "additionalProperties": False,
-  "properties": {
-    "eval_version": {
-      "type": "string",
-      "description": "Harness version string (semver). Set by NGAIP-363."
-    },
-    "metrics_spec_version": {
-      "type": "string",
-      "description": "Version from metrics_spec.yaml used during this run. Must match the checked-in spec version."
-    },
-    "config": {
-      "type": "object",
-      "description": "Full eval run config: retriever_type, top_k, model, seed, gold file path, folder_ids.",
-      "required": ["retriever_type", "top_k", "seed", "gold_file"],
-      "properties": {
-        "retriever_type": {"type": "string", "enum": ["semantic", "keyword", "hybrid"]},
-        "top_k": {"type": "integer", "minimum": 1},
-        "seed": {"type": "integer"},
-        "gold_file": {"type": "string"},
-        "model": {"type": "string"},
-        "folder_ids": {"type": "array", "items": {"type": "string"}}
-      }
-    },
-    "timestamp": {
-      "type": "string",
-      "format": "date-time",
-      "description": "ISO-8601 UTC timestamp of when the eval run completed."
-    },
-    "results": {
-      "type": "array",
-      "description": "One entry per question in the gold dataset.",
-      "items": {
-        "type": "object",
-        "required": ["question_id", "question", "retrieved_count", "scores"],
-        "additionalProperties": False,
-        "properties": {
-          "question_id": {"type": "string"},
-          "question": {"type": "string"},
-          "retrieved_count": {"type": "integer", "minimum": 0},
-          "latency_ms": {"type": "number", "description": "End-to-end wall-clock latency for this question in milliseconds."},
-          "ttfc_ms": {"type": "number", "description": "Time-to-first-chunk in milliseconds (streaming responses only)."},
-          "cost_usd": {"type": "number", "description": "Total cost for this question (input + output + embed + rerank)."},
-          "scores": {
-            "type": "object",
-            "description": "Per-metric scores for this question. Keys are metric IDs from metrics_spec.yaml.",
-            "properties": {
-              "retrieval_precision_at_k": {"type": "number", "minimum": 0, "maximum": 1},
-              "retrieval_recall_at_k":    {"type": "number", "minimum": 0, "maximum": 1},
-              "context_relevancy_at_k":   {"type": "number", "minimum": 0, "maximum": 1},
-              "hit_rate_at_k":            {"type": "number", "minimum": 0, "maximum": 1},
-              "citation_precision":       {"type": "number", "minimum": 0, "maximum": 1},
-              "citation_recall":          {"type": "number", "minimum": 0, "maximum": 1},
-              "hallucination_rate":       {"type": "number", "minimum": 0, "maximum": 1},
-              "response_accuracy":        {"type": "number", "minimum": 0, "maximum": 1},
-              "faithfulness":             {"type": "number", "minimum": 0, "maximum": 1},
-              "freshness_days":           {"type": "number", "minimum": 0}
-            },
-            "additionalProperties": True
-          },
-          "judge_prompt_hash": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "eval_report.schema.json",
+    "title": "RAG Eval Report",
+    "description": (
+        "Schema for report.json produced by the NGAIP-363 harness. "
+        "Versioned here (NGAIP-415) so metric owners can depend on a stable contract."
+    ),
+    "type": "object",
+    "required": [
+        "eval_version",
+        "metrics_spec_version",
+        "config",
+        "timestamp",
+        "results",
+        "aggregate_scores",
+    ],
+    "additionalProperties": False,
+    "properties": {
+        "eval_version": {
             "type": "string",
-            "description": "SHA-256 of the LLM-as-judge prompt used for response_accuracy. Required when judge scores are present."
-          }
-        }
-      }
+            "description": "Harness version string (semver). Set by NGAIP-363.",
+        },
+        "metrics_spec_version": {
+            "type": "string",
+            "description": (
+                "Version from metrics_spec.yaml used during this run. "
+                "Must match the checked-in spec version."
+            ),
+        },
+        "config": {
+            "type": "object",
+            "description": (
+                "Full eval run config: retriever_type, top_k, model, seed, "
+                "gold file path, folder_ids."
+            ),
+            "required": ["retriever_type", "top_k", "seed", "gold_file"],
+            "properties": {
+                "retriever_type": {
+                    "type": "string",
+                    "enum": ["semantic", "keyword", "hybrid"],
+                },
+                "top_k": {"type": "integer", "minimum": 1},
+                "seed": {"type": "integer"},
+                "gold_file": {"type": "string"},
+                "model": {"type": "string"},
+                "folder_ids": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO-8601 UTC timestamp of when the eval run completed.",
+        },
+        "results": {
+            "type": "array",
+            "description": "One entry per question in the gold dataset.",
+            "items": {
+                "type": "object",
+                "required": ["question_id", "question", "retrieved_count", "scores"],
+                "additionalProperties": False,
+                "properties": {
+                    "question_id": {"type": "string"},
+                    "question": {"type": "string"},
+                    "retrieved_count": {"type": "integer", "minimum": 0},
+                    "latency_ms": {
+                        "type": "number",
+                        "description": (
+                            "End-to-end wall-clock latency for this question in milliseconds."
+                        ),
+                    },
+                    "ttfc_ms": {
+                        "type": "number",
+                        "description": (
+                            "Time-to-first-chunk in milliseconds (streaming responses only)."
+                        ),
+                    },
+                    "cost_usd": {
+                        "type": "number",
+                        "description": (
+                            "Total cost for this question (input + output + embed + rerank)."
+                        ),
+                    },
+                    "scores": {
+                        "type": "object",
+                        "description": (
+                            "Per-metric scores for this question. "
+                            "Keys are metric IDs from metrics_spec.yaml."
+                        ),
+                        "properties": {
+                            "retrieval_precision_at_k": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1,
+                            },
+                            "retrieval_recall_at_k": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1,
+                            },
+                            "context_relevancy_at_k": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1,
+                            },
+                            "hit_rate_at_k": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1,
+                            },
+                            "citation_precision": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1,
+                            },
+                            "citation_recall": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1,
+                            },
+                            "hallucination_rate": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1,
+                            },
+                            "response_accuracy": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1,
+                            },
+                            "faithfulness": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1,
+                            },
+                            "freshness_days": {"type": "number", "minimum": 0},
+                        },
+                        "additionalProperties": True,
+                    },
+                    "judge_prompt_hash": {
+                        "type": "string",
+                        "description": (
+                            "SHA-256 of the LLM-as-judge prompt used for response_accuracy. "
+                            "Required when judge scores are present."
+                        ),
+                    },
+                },
+            },
+        },
+        "aggregate_scores": {
+            "type": "object",
+            "description": (
+                "Aggregated scores across all questions. "
+                "Keys match metric IDs in metrics_spec.yaml."
+            ),
+            "properties": {
+                "retrieval_precision_at_k": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                },
+                "retrieval_recall_at_k": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                },
+                "context_relevancy_at_k": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                },
+                "hit_rate_at_k": {"type": "number", "minimum": 0, "maximum": 1},
+                "citation_precision": {"type": "number", "minimum": 0, "maximum": 1},
+                "citation_recall": {"type": "number", "minimum": 0, "maximum": 1},
+                "hallucination_rate": {"type": "number", "minimum": 0, "maximum": 1},
+                "response_accuracy": {"type": "number", "minimum": 0, "maximum": 1},
+                "faithfulness": {"type": "number", "minimum": 0, "maximum": 1},
+                "freshness_days_mean": {"type": "number", "minimum": 0},
+                "latency_p95_ms": {"type": "number", "minimum": 0},
+                "latency_ttfc_p95_ms": {"type": "number", "minimum": 0},
+                "cost_per_query_usd_mean": {"type": "number", "minimum": 0},
+            },
+            "additionalProperties": True,
+        },
+        "pass_fail_summary": {
+            "type": "object",
+            "description": (
+                "Optional: per-metric pass/fail verdict against thresholds in "
+                "metrics_spec.yaml. Populated once thresholds are finalized (post NGAIP-362)."
+            ),
+            "additionalProperties": {
+                "type": "object",
+                "required": ["score", "threshold", "passed"],
+                "properties": {
+                    "score": {"type": "number"},
+                    "threshold": {},
+                    "passed": {"type": "boolean"},
+                },
+            },
+        },
     },
-    "aggregate_scores": {
-      "type": "object",
-      "description": "Aggregated scores across all questions. Keys match metric IDs in metrics_spec.yaml.",
-      "properties": {
-        "retrieval_precision_at_k": {"type": "number", "minimum": 0, "maximum": 1},
-        "retrieval_recall_at_k":    {"type": "number", "minimum": 0, "maximum": 1},
-        "context_relevancy_at_k":   {"type": "number", "minimum": 0, "maximum": 1},
-        "hit_rate_at_k":            {"type": "number", "minimum": 0, "maximum": 1},
-        "citation_precision":       {"type": "number", "minimum": 0, "maximum": 1},
-        "citation_recall":          {"type": "number", "minimum": 0, "maximum": 1},
-        "hallucination_rate":       {"type": "number", "minimum": 0, "maximum": 1},
-        "response_accuracy":        {"type": "number", "minimum": 0, "maximum": 1},
-        "faithfulness":             {"type": "number", "minimum": 0, "maximum": 1},
-        "freshness_days_mean":      {"type": "number", "minimum": 0},
-        "latency_p95_ms":           {"type": "number", "minimum": 0},
-        "latency_ttfc_p95_ms":      {"type": "number", "minimum": 0},
-        "cost_per_query_usd_mean":  {"type": "number", "minimum": 0}
-      },
-      "additionalProperties": True
-    },
-    "pass_fail_summary": {
-      "type": "object",
-      "description": "Optional: per-metric pass/fail verdict against thresholds in metrics_spec.yaml. Populated once thresholds are finalized (post NGAIP-362).",
-      "additionalProperties": {
-        "type": "object",
-        "required": ["score", "threshold", "passed"],
-        "properties": {
-          "score":     {"type": "number"},
-          "threshold": {},
-          "passed":    {"type": "boolean"}
-        }
-      }
-    }
-  }
 }
 
-out = pathlib.Path("ENCHS-PW-GenAI-Backend/app_retrieval/evaluation/config/eval_report.schema.json")
-out.write_text(json.dumps(schema, indent=2))
-print(f"Written: {out}")
-PYEOF
+schema_path = (
+    BACKEND / "app_retrieval" / "evaluation" / "config" / "eval_report.schema.json"
+)
+schema_path.parent.mkdir(parents=True, exist_ok=True)
+schema_path.write_text(json.dumps(schema, indent=2), encoding="utf-8")
+print(f"[NGAIP-415] Created: {schema_path.relative_to(BACKEND)}")
 
 # ---------------------------------------------------------------------------
 # docs/metrics_spec.md
 # ---------------------------------------------------------------------------
-cat > ENCHS-PW-GenAI-Backend/docs/metrics_spec.md <<'PYEOF'
+METRICS_SPEC_MD = """\
 # RAG Evaluation: Metrics and Success Criteria
 
 **Ticket:** NGAIP-415
@@ -552,12 +689,15 @@ Each K run is fully independent (no shared state between runs).
 | 4 | Lock LLM-as-judge prompt v1 and record hash | NGAIP-366 |
 | 5 | Confirm Azure OpenAI pricing figures for cost_per_query formula | NGAIP-363 |
 | 6 | Pin PDF/export of this doc in Jira NGAIP-415 | Martin Petrov |
-PYEOF
+"""
+
+ensure(BACKEND / "docs" / "metrics_spec.md", METRICS_SPEC_MD)
+print("[NGAIP-415] Created: docs/metrics_spec.md")
 
 # ---------------------------------------------------------------------------
 # tests/app_retrieval/test_metrics_spec.py
 # ---------------------------------------------------------------------------
-cat > ENCHS-PW-GenAI-Backend/tests/app_retrieval/test_metrics_spec.py <<'PYEOF'
+TEST_METRICS_SPEC_PY = '''\
 """
 Structural validation tests for metrics_spec.yaml and eval_report.schema.json (NGAIP-415).
 
@@ -670,14 +810,14 @@ def test_metrics_list_is_present(spec):
 def test_all_metrics_have_required_fields(metrics):
     for m in metrics:
         missing = REQUIRED_METRIC_FIELDS - set(m.keys())
-        assert not missing, f"Metric '{m.get('id', '?')}' missing fields: {missing}"
+        assert not missing, f"Metric \'{m.get(\'id\', \'?\')}\' missing fields: {missing}"
 
 
 def test_all_metric_ids_are_snake_case(metrics):
     for m in metrics:
         mid = m["id"]
-        assert mid == mid.lower(), f"Metric id '{mid}' must be lowercase snake_case"
-        assert " " not in mid, f"Metric id '{mid}' must not contain spaces"
+        assert mid == mid.lower(), f"Metric id \'{mid}\' must be lowercase snake_case"
+        assert " " not in mid, f"Metric id \'{mid}\' must not contain spaces"
 
 
 def test_no_duplicate_metric_ids(metrics):
@@ -688,7 +828,7 @@ def test_no_duplicate_metric_ids(metrics):
 def test_all_metric_categories_are_valid(metrics):
     for m in metrics:
         assert m["category"] in VALID_CATEGORIES, (
-            f"Metric '{m['id']}' has unknown category '{m['category']}'. "
+            f"Metric \'{m[\'id\']}\' has unknown category \'{m[\'category\']}\'. "
             f"Expected one of {VALID_CATEGORIES}."
         )
 
@@ -696,7 +836,7 @@ def test_all_metric_categories_are_valid(metrics):
 def test_all_owner_tickets_are_valid(metrics):
     for m in metrics:
         assert m["owner_ticket"] in VALID_OWNER_TICKETS, (
-            f"Metric '{m['id']}' has unexpected owner_ticket '{m['owner_ticket']}'. "
+            f"Metric \'{m[\'id\']}\' has unexpected owner_ticket \'{m[\'owner_ticket\']}\'. "
             f"Expected one of {VALID_OWNER_TICKETS}."
         )
 
@@ -705,7 +845,7 @@ def test_all_measurements_have_valid_prefix(metrics):
     for m in metrics:
         measurement = str(m["measurement"]).lower()
         assert any(measurement.startswith(p) for p in VALID_MEASUREMENT_PREFIXES), (
-            f"Metric '{m['id']}' measurement '{m['measurement']}' does not start with "
+            f"Metric \'{m[\'id\']}\' measurement \'{m[\'measurement\']}\' does not start with "
             f"one of {VALID_MEASUREMENT_PREFIXES}."
         )
 
@@ -713,8 +853,8 @@ def test_all_measurements_have_valid_prefix(metrics):
 def test_all_thresholds_have_pass_and_fail(metrics):
     for m in metrics:
         threshold = m["threshold"]
-        assert "pass" in threshold, f"Metric '{m['id']}' threshold missing 'pass' key"
-        assert "fail" in threshold, f"Metric '{m['id']}' threshold missing 'fail' key"
+        assert "pass" in threshold, f"Metric \'{m[\'id\']}\' threshold missing \'pass\' key"
+        assert "fail" in threshold, f"Metric \'{m[\'id\']}\' threshold missing \'fail\' key"
 
 
 def test_no_hardcoded_numeric_thresholds(metrics):
@@ -726,8 +866,8 @@ def test_no_hardcoded_numeric_thresholds(metrics):
         for key in ("pass", "fail"):
             value = str(m["threshold"][key]).strip().upper()
             assert value.startswith("TBD"), (
-                f"Metric '{m['id']}' threshold.{key} = '{m['threshold'][key]}' — "
-                "must be 'TBD' until NGAIP-362 calibration is complete."
+                f"Metric \'{m[\'id\']}\' threshold.{key} = \'{m[\'threshold\'][key]}\' — "
+                "must be \'TBD\' until NGAIP-362 calibration is complete."
             )
 
 
@@ -735,8 +875,8 @@ def test_all_metrics_have_direction(metrics):
     """Each threshold block should declare whether higher or lower is better."""
     for m in metrics:
         assert "direction" in m["threshold"], (
-            f"Metric '{m['id']}' threshold is missing 'direction' "
-            "(expected 'higher_is_better' or 'lower_is_better')."
+            f"Metric \'{m[\'id\']}\' threshold is missing \'direction\' "
+            "(expected \'higher_is_better\' or \'lower_is_better\')."
         )
 
 
@@ -745,7 +885,7 @@ def test_direction_values_are_valid(metrics):
     for m in metrics:
         direction = m["threshold"].get("direction")
         assert direction in valid_directions, (
-            f"Metric '{m['id']}' has invalid direction '{direction}'. "
+            f"Metric \'{m[\'id\']}\' has invalid direction \'{direction}\'. "
             f"Expected one of {valid_directions}."
         )
 
@@ -766,8 +906,8 @@ def test_category_owner_consistency(metrics):
     for m in metrics:
         expected_owner = CATEGORY_OWNER_MAP[m["category"]]
         assert m["owner_ticket"] == expected_owner, (
-            f"Metric '{m['id']}' category='{m['category']}' should be owned by "
-            f"{expected_owner}, got '{m['owner_ticket']}'."
+            f"Metric \'{m[\'id\']}\' category=\'{m[\'category\']}\' should be owned by "
+            f"{expected_owner}, got \'{m[\'owner_ticket\']}\'."
         )
 
 
@@ -790,11 +930,11 @@ def test_retrieval_metrics_reference_k_parameter(metrics):
     for m in retrieval_metrics:
         params = m.get("parameters", {})
         assert "k" in params, (
-            f"Retrieval metric '{m['id']}' must declare a 'k' parameter "
+            f"Retrieval metric \'{m[\'id\']}\' must declare a \'k\' parameter "
             "matching the top_k_sweep values."
         )
         assert params["k"] == EXPECTED_TOP_K_VALUES, (
-            f"Retrieval metric '{m['id']}' k={params['k']} must match "
+            f"Retrieval metric \'{m[\'id\']}\' k={params[\'k\']} must match "
             f"top_k_sweep.values={EXPECTED_TOP_K_VALUES}."
         )
 
@@ -814,7 +954,7 @@ def test_hallucination_rate_direction_is_lower_is_better(metrics):
 
 def test_response_accuracy_has_judge_config(metrics):
     ra = next(m for m in metrics if m["id"] == "response_accuracy")
-    assert "judge" in ra, "response_accuracy must declare a 'judge' configuration block"
+    assert "judge" in ra, "response_accuracy must declare a \'judge\' configuration block"
     assert "model" in ra["judge"]
     assert "temperature" in ra["judge"]
 
@@ -824,19 +964,17 @@ def test_response_accuracy_judge_temperature_is_zero(metrics):
     assert ra["judge"]["temperature"] == 0.0, (
         "LLM-as-judge temperature must be 0.0 for deterministic scoring."
     )
-PYEOF
+'''
 
-echo ""
-echo "[NGAIP-415] Done. Verify with:"
-echo "  cd ENCHS-PW-GenAI-Backend"
-echo "  python -c \"import yaml; yaml.safe_load(open('app_retrieval/evaluation/config/metrics_spec.yaml')); print('YAML OK')\""
-echo "  python -c \"import json; json.load(open('app_retrieval/evaluation/config/eval_report.schema.json')); print('JSON OK')\""
-echo "  python -c \""
-echo "import yaml"
-echo "spec = yaml.safe_load(open('app_retrieval/evaluation/config/metrics_spec.yaml'))"
-echo "ids = {m['id'] for m in spec['metrics']}"
-echo "required = {'context_relevancy_at_k','citation_precision','citation_recall','hallucination_rate','response_accuracy','faithfulness','freshness_days','latency_p95_ms','latency_ttfc_ms','cost_per_query_usd'}"
-echo "assert required <= ids, f'Missing: {required - ids}'"
-echo "print('All required metric IDs present')"
-echo "\""
-echo "  pytest tests/app_retrieval/test_metrics_spec.py -v"
+ensure(
+    BACKEND / "tests" / "app_retrieval" / "test_metrics_spec.py",
+    TEST_METRICS_SPEC_PY,
+)
+print("[NGAIP-415] Created: tests/app_retrieval/test_metrics_spec.py")
+
+print("")
+print("[NGAIP-415] Done. Verify with:")
+print("  cd ENCHS-PW-GenAI-Backend")
+print("  python -c \"import yaml; yaml.safe_load(open('app_retrieval/evaluation/config/metrics_spec.yaml')); print('YAML OK')\"")
+print("  python -c \"import json; json.load(open('app_retrieval/evaluation/config/eval_report.schema.json')); print('JSON OK')\"")
+print("  pytest tests/app_retrieval/test_metrics_spec.py -v")
