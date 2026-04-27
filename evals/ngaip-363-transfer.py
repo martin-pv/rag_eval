@@ -1,13 +1,34 @@
 #!/usr/bin/env python3
 """NGAIP-363 Transfer Script — cross-platform (Windows/macOS/Linux)
-Usage: python ngaip-363-transfer.py  (run from repo root)
+Usage: python ngaip-363-transfer.py
+
+BACKEND is resolved as pathlib.Path (never use a plain string for BACKEND).
+
+- Optional env: ENCHS_PW_GENAI_BACKEND or GENAI_BACKEND_ROOT = absolute path to the backend
+  (e.g. C:\\Users\\you\\GitHub\\ENCHS-PW-GenAI-Backend on Windows).
+- Otherwise: if cwd contains manage.py, cwd is the backend; else cwd / ENCHS-PW-GenAI-Backend
+  (repo-root layout).
 """
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 BRANCH = "ngaip-363-rag-evaluation-harness"
-BACKEND = Path.cwd() / "ENCHS-PW-GenAI-Backend"
+
+
+def resolve_backend_root() -> Path:
+    """Always return a Path so BACKEND / \"requirements.txt\" and .exists() work."""
+    env = os.environ.get("ENCHS_PW_GENAI_BACKEND") or os.environ.get("GENAI_BACKEND_ROOT")
+    if env:
+        return Path(env).expanduser().resolve()
+    cwd = Path.cwd().resolve()
+    if (cwd / "manage.py").exists():
+        return cwd
+    return cwd / "ENCHS-PW-GenAI-Backend"
+
+
+BACKEND = resolve_backend_root()
 
 
 def git(*args):
@@ -47,7 +68,8 @@ def append_if_missing(path: Path, line: str):
 
 
 def main():
-    print(f"[363-transfer] Starting transfer into: {Path.cwd()}")
+    print(f"[363-transfer] Backend root: {BACKEND}")
+    print(f"[363-transfer] Starting transfer (cwd={Path.cwd()})")
 
     # -------------------------------------------------------------------------
     # requirements.txt -- append only if not already present
