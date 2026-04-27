@@ -1,34 +1,39 @@
 #!/usr/bin/env python3
 """NGAIP-363 Transfer Script — cross-platform (Windows/macOS/Linux)
-Usage: python ngaip-363-transfer.py
-
-BACKEND is resolved as pathlib.Path (never use a plain string for BACKEND).
-
-- Optional env: ENCHS_PW_GENAI_BACKEND or GENAI_BACKEND_ROOT = absolute path to the backend
-  (e.g. C:\\Users\\you\\GitHub\\ENCHS-PW-GenAI-Backend on Windows).
-- Otherwise: if cwd contains manage.py, cwd is the backend; else cwd / ENCHS-PW-GenAI-Backend
-  (repo-root layout).
+Usage: python ngaip-363-transfer.py  (run from repo root)
 """
-import os
 import subprocess
 import sys
 from pathlib import Path
 
 BRANCH = "ngaip-363-rag-evaluation-harness"
+BACKEND = Path.cwd() / "ENCHS-PW-GenAI-Backend"
 
 
-def resolve_backend_root() -> Path:
-    """Always return a Path so BACKEND / \"requirements.txt\" and .exists() work."""
-    env = os.environ.get("ENCHS_PW_GENAI_BACKEND") or os.environ.get("GENAI_BACKEND_ROOT")
-    if env:
-        return Path(env).expanduser().resolve()
-    cwd = Path.cwd().resolve()
-    if (cwd / "manage.py").exists():
-        return cwd
-    return cwd / "ENCHS-PW-GenAI-Backend"
+def read_text_compat(path: Path) -> str:
+    """Read text from disk; supports UTF-8, BOM, and UTF-16 (common for Windows-saved files).
 
-
-BACKEND = resolve_backend_root()
+    requirements.txt saved as \"Unicode\" in Notepad is often UTF-16 LE with BOM (starts with 0xFF 0xFE).
+    """
+    if not path.exists():
+        return ""
+    raw = path.read_bytes()
+    if not raw:
+        return ""
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return raw.decode("utf-16")
+    if raw.startswith(b"\xef\xbb\xbf"):
+        return raw.decode("utf-8-sig")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        try:
+            return raw.decode("utf-16-le")
+        except UnicodeDecodeError:
+            try:
+                return raw.decode("cp1252")
+            except UnicodeDecodeError:
+                return raw.decode("latin-1")
 
 
 def git(*args):
@@ -57,19 +62,28 @@ def touch(path: Path):
 
 
 def append_if_missing(path: Path, line: str):
-    """Append line to file only if not already present (replaces grep -q guard)."""
-    text = path.read_text(encoding="utf-8") if path.exists() else ""
+    """Append line to file only if not already present (replaces grep -q guard).
+
+    On first modification, rewrites the file as UTF-8 if it was UTF-16 / legacy-encoded.
+    """
+    text = read_text_compat(path)
+    addition = line if line.endswith("\n") else line + "\n"
     if line.rstrip() not in text:
-        with path.open("a", encoding="utf-8") as f:
-            f.write(line if line.endswith("\n") else line + "\n")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not text:
+            new_content = addition
+        elif text.endswith("\n"):
+            new_content = text + addition
+        else:
+            new_content = text + "\n" + addition
+        path.write_text(new_content, encoding="utf-8")
         print(f"  Appended: {line.strip()}")
     else:
         print(f"  Already present: {line.strip()}")
 
 
 def main():
-    print(f"[363-transfer] Backend root: {BACKEND}")
-    print(f"[363-transfer] Starting transfer (cwd={Path.cwd()})")
+    print(f"[363-transfer] Starting transfer into: {Path.cwd()}")
 
     # -------------------------------------------------------------------------
     # requirements.txt -- append only if not already present
