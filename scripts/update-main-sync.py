@@ -43,7 +43,7 @@ context lines. Use for screenshot/extraction spot-checks.
 Commands:
   lines             Compact line-numbered +/- listing for extraction review (see below).
   diff              Print name-status, commits (FROM..TO), and --stat diff.
-  patch             Write unified diff for ALL files (git diff FROM TO) to a .patch file.
+  patch             Write unified diff to sync_full.diff (default -U0: changed lines only).
   report            Write sync_report.json (resolved SHAs + file list + commits).
   show              Print summary from ./sync_report.json.
   full              diff + report + show + patch; add --with-lines for compact +/- listing.
@@ -110,24 +110,34 @@ def cmd_diff(from_ref: str, to_ref: str, repo: Path) -> int:
     return 0
 
 
-def cmd_patch(from_ref: str, to_ref: str, repo: Path, out_path: Path) -> int:
-    """Write full unified diff for every changed file (same as `git diff FROM TO`)."""
+def cmd_patch(
+    from_ref: str, to_ref: str, repo: Path, out_path: Path, unified: int
+) -> int:
+    """Write unified diff for changed lines only when unified=0 (no surrounding context)."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fr = resolve_ref(repo, from_ref)
     to = resolve_ref(repo, to_ref)
     with out_path.open("w", encoding="utf-8", newline="\n") as f:
         r = subprocess.run(
-            ["git", "diff", "--no-ext-diff", from_ref, to_ref],
+            [
+                "git",
+                "diff",
+                f"-U{unified}",
+                "--no-ext-diff",
+                from_ref,
+                to_ref,
+            ],
             cwd=repo,
             stdout=f,
         )
     if r.returncode != 0:
         print("ERROR: git diff failed (see messages above).", file=sys.stderr)
         return r.returncode
-    print(
-        f"Full unified diff written to {out_path.resolve()}\n"
-        f"  ({from_ref} {fr[:12]}… → {to_ref} {to[:12]}…)"
-    )
+        print(
+            f"Unified diff written to {out_path.resolve()} (-U{unified}; unchanged "
+            f"context lines omitted when 0)\n"
+            f"  ({from_ref} {fr[:12]}… → {to_ref} {to[:12]}…)"
+        )
     return 0
 
 
@@ -338,7 +348,7 @@ def cmd_full(
     cmd_show(report_path)
     if not skip_patch:
         print()
-        cmd_patch(from_ref, to_ref, repo, patch_path)
+        cmd_patch(from_ref, to_ref, repo, patch_path, unified)
     if with_lines:
         print()
         lo = None if lines_out == "-" else Path(lines_out)
@@ -527,7 +537,10 @@ def main(argv: list[str]) -> int:
         type=int,
         default=0,
         metavar="N",
-        help="git diff -U value for line listing (default: 0, context-free)",
+        help=(
+            "git diff -U N for patch file, lines listing, and full (default: 0 = no "
+            "unchanged context lines around edits; use 3 if you need git apply-friendly hunks)"
+        ),
     )
     parser.add_argument(
         "--with-lines",
@@ -577,7 +590,7 @@ def main(argv: list[str]) -> int:
         lo = None if args.lines_out == "-" else Path(args.lines_out)
         return cmd_lines(from_ref, to_ref, repo, lo, args.unified)
     if args.command == "patch":
-        return cmd_patch(from_ref, to_ref, repo, patch_path)
+        return cmd_patch(from_ref, to_ref, repo, patch_path, args.unified)
     if args.command == "report":
         return cmd_report(from_ref, to_ref, repo, report_path)
     if args.command == "show":
