@@ -3,7 +3,9 @@
 
 Run from Django project root (folder containing manage.py).
 
-Does NOT copy whole files from a sibling backend/ tree — only edits targets.
+This script does NOT copy folders.py (or any file) from a sibling tree.
+It ONLY: inserts one model field, writes one migration if missing, and patches
+kg_status dict entries in app_retrieval/views/folders.py.
 """
 
 from pathlib import Path
@@ -103,6 +105,7 @@ def patch_folders_view() -> None:
 
 
 def main() -> None:
+    print("[ZH-45] Applying surgical patches under", BACKEND.resolve())
     for p in (MODELS_PATH, FOLDERS_VIEW_PATH):
         if not p.is_file():
             raise SystemExit(f"[ZH-45] ERROR: {p} not found. Run from Django project root.")

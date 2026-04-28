@@ -7,6 +7,7 @@ Idempotent: safe to run multiple times.
 Cross-platform equivalent of zh-65-transfer.sh (Windows/macOS/Linux).
 """
 
+import re
 import sys
 from pathlib import Path
 
@@ -14,6 +15,11 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def normalize_newlines(text: str) -> str:
+    """Force LF so anchors match on Windows (CRLF) checkouts."""
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
 
 def ensure(path: Path, content: str) -> None:
     """Write content to path, creating parent directories as needed."""
@@ -44,30 +50,27 @@ if not TARGET.is_file():
 # After:  if not folders.exists():
 # ---------------------------------------------------------------------------
 
-content = TARGET.read_text(encoding="utf-8")
+content = normalize_newlines(TARGET.read_text(encoding="utf-8"))
 
-if "if not folders.exists():\n" in content and "== 0" not in content:
+if not re.search(r"exists\(\)\s*==\s*0", content):
     print(f"[ZH-65] Already patched (exists fix): {TARGET}")
 else:
-    old_1 = (
-        '    if not folders.exists() == 0:\n'
-        '        raise Exception("No valid folders were passed into folder_ids")\n'
+    exists_bug = re.compile(
+        r"^(\s*)if\s+not\s+folders\.exists\(\)\s*==\s*0\s*:\s*$",
+        re.MULTILINE,
     )
-    new_1 = (
-        '    if not folders.exists():\n'
-        '        raise Exception("No valid folders were passed into folder_ids")\n'
-    )
-
-    if old_1 not in content:
-        print("[ZH-65] ERROR: exists() anchor not found. File may have diverged.")
+    if not exists_bug.search(content):
+        print("[ZH-65] ERROR: exists() == 0 pattern not found. File may have diverged.")
         sys.exit(1)
 
-    if content.count(old_1) > 1:
-        print("[ZH-65] ERROR: exists() anchor is not unique.")
-        sys.exit(1)
+    def _fix_exists_line(m: re.Match) -> str:
+        indent = m.group(1)
+        return f"{indent}if not folders.exists():"
 
-    content = content.replace(old_1, new_1, 1)
-    TARGET.write_text(content, encoding="utf-8")
+    content, n_exists = exists_bug.subn(_fix_exists_line, content, count=1)
+    if n_exists != 1:
+        print("[ZH-65] ERROR: exists() line replace failed.")
+        sys.exit(1)
     print(f"[ZH-65] Patched (exists fix): {TARGET}")
 
 # ---------------------------------------------------------------------------
@@ -76,32 +79,33 @@ else:
 # After:  seen_pks + explicit loop
 # ---------------------------------------------------------------------------
 
-content = TARGET.read_text(encoding="utf-8")
-
 if "seen_pks = set()" in content:
     print(f"[ZH-65] Already patched (dedup fix): {TARGET}")
 else:
-    old_2 = "    folder_names = [f.folder_name async for f in folders]\n"
-    new_2 = (
-        "    seen_pks = set()\n"
-        "    folder_names = []\n"
-        "    async for f in folders:\n"
-        "        if f.pk not in seen_pks:\n"
-        "            seen_pks.add(f.pk)\n"
-        "            folder_names.append(f.folder_name)\n"
+    dedup_pat = re.compile(
+        r"^(\s*)folder_names\s*=\s*\[f\.folder_name\s+async\s+for\s+f\s+in\s+folders\]\s*$",
+        re.MULTILINE,
     )
 
-    if old_2 not in content:
-        print("[ZH-65] ERROR: dedup anchor not found. File may have diverged.")
-        sys.exit(1)
+    def _dedup_repl(m: re.Match) -> str:
+        ind = m.group(1)
+        return (
+            f"{ind}seen_pks = set()\n"
+            f"{ind}folder_names = []\n"
+            f"{ind}async for f in folders:\n"
+            f"{ind}    if f.pk not in seen_pks:\n"
+            f"{ind}        seen_pks.add(f.pk)\n"
+            f"{ind}        folder_names.append(f.folder_name)"
+        )
 
-    if content.count(old_2) > 1:
-        print("[ZH-65] ERROR: dedup anchor is not unique.")
+    new_content, n_dedup = dedup_pat.subn(_dedup_repl, content, count=1)
+    if n_dedup != 1:
+        print("[ZH-65] ERROR: dedup line not found (async list comprehension). File may have diverged.")
         sys.exit(1)
-
-    content = content.replace(old_2, new_2, 1)
-    TARGET.write_text(content, encoding="utf-8")
+    content = new_content
     print(f"[ZH-65] Patched (dedup fix): {TARGET}")
+
+TARGET.write_text(content, encoding="utf-8")
 
 # ---------------------------------------------------------------------------
 # Write test file
