@@ -17,10 +17,19 @@ Intended case (e.g. Windows ENCHS-PW-GenAI-Backend laptop):
   If ``main`` itself is behind ``origin/main``, update first (``git pull``) or pass
   ``--fetch`` / compare to ``origin/main`` (see ``--to-ref``).
 
-Windows: run from the repo root in Git Bash, PowerShell, or cmd — use
-``py -3 devscripts\\update-main-sync\\update-main-sync.py full`` if ``python``
-is not on PATH. Patch/report files are UTF-8 with LF newlines (fine for review
-and ``git apply``).
+Windows CMD: in ``scripts\\`` (or ``devscripts\\update-main-sync\\``) use the
+``.cmd`` launchers — no Git Bash required::
+
+  diff-from-snapshot.cmd
+  apply-sync.cmd
+  generate-sync-report.cmd
+
+Example::
+
+  cd C:\\path\\to\\ENCHS-PW-GenAI-Backend
+  scripts\\diff-from-snapshot.cmd --fetch
+
+They try ``py -3`` first, then ``python``. Patch/report outputs stay UTF-8 with LF newlines.
 
 Commands:
   diff              Print name-status, commits (FROM..TO), and --stat diff.
@@ -220,9 +229,13 @@ def cmd_full(
 
 
 def companion_wrappers(this_script: Path) -> dict[str, str]:
-    """Relative filename -> file contents for thin wrappers."""
+    """Thin wrappers: Unix (.sh / helper .py) and Windows CMD (.cmd).
+
+    CMD files use ``py -3`` when available, else ``python``, so they work from
+    Command Prompt without Git Bash.
+    """
     py = this_script.name
-    return {
+    unix = {
         "diff-from-snapshot.sh": f"""#!/usr/bin/env bash
 # Thin wrapper — see update-main-sync.py (defaults: backup branch vs main)
 set -euo pipefail
@@ -246,6 +259,41 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 exec python3 "$ROOT/{py}" show "$@"
 """,
     }
+    # Windows Command Prompt (cmd.exe) — double-click or: diff-from-snapshot.cmd --fetch
+    win = {
+        "diff-from-snapshot.cmd": f"""@echo off
+cd /d "%~dp0"
+where py >nul 2>nul
+if not errorlevel 1 goto RUN_PY
+python "%~dp0{py}" diff %*
+goto EOF
+:RUN_PY
+py -3 "%~dp0{py}" diff %*
+:EOF
+""",
+        "apply-sync.cmd": f"""@echo off
+cd /d "%~dp0"
+where py >nul 2>nul
+if not errorlevel 1 goto RUN_PY
+python "%~dp0{py}" show %*
+goto EOF
+:RUN_PY
+py -3 "%~dp0{py}" show %*
+:EOF
+""",
+        "generate-sync-report.cmd": f"""@echo off
+cd /d "%~dp0"
+where py >nul 2>nul
+if not errorlevel 1 goto RUN_PY
+python "%~dp0{py}" report %*
+goto EOF
+:RUN_PY
+py -3 "%~dp0{py}" report %*
+:EOF
+""",
+    }
+    unix.update(win)
+    return unix
 
 
 def cmd_publish_rag_eval(this_script: Path, rag_eval_root: Path, dry_run: bool) -> int:
@@ -259,8 +307,10 @@ def cmd_publish_rag_eval(this_script: Path, rag_eval_root: Path, dry_run: bool) 
         os.chmod(dest_dir / this_script.name, 0o755)
         for name, content in companion_wrappers(this_script).items():
             p = dest_dir / name
-            p.write_text(content, encoding="utf-8")
-            os.chmod(p, 0o755)
+            body = content.replace("\n", "\r\n") if name.endswith(".cmd") else content
+            p.write_text(body, encoding="utf-8", newline="" if name.endswith(".cmd") else "\n")
+            if not name.endswith(".cmd"):
+                os.chmod(p, 0o755)
 
     print(f"  + {this_script.name}")
     for name in companion_wrappers(this_script):
