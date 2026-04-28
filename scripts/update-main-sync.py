@@ -6,6 +6,22 @@ Default comparison:
   FROM  main-backup-for-mac-claude-repo-04-07-2026  (Mac Claude repo snapshot)
   TO    main                                       (current main)
 
+Intended case (e.g. Windows ENCHS-PW-GenAI-Backend laptop):
+  The backup branch sits at an older commit; local ``main`` has moved forward.
+  That is exactly “backup is behind main”. This script shows everything that
+  changed between those tips:
+
+  - ``git log FROM..TO`` — commits reachable from TO but not FROM
+  - ``git diff FROM TO`` — full unified diff of all file changes
+
+  If ``main`` itself is behind ``origin/main``, update first (``git pull``) or pass
+  ``--fetch`` / compare to ``origin/main`` (see ``--to-ref``).
+
+Windows: run from the repo root in Git Bash, PowerShell, or cmd — use
+``py -3 devscripts\\update-main-sync\\update-main-sync.py full`` if ``python``
+is not on PATH. Patch/report files are UTF-8 with LF newlines (fine for review
+and ``git apply``).
+
 Commands:
   diff              Print name-status, commits (FROM..TO), and --stat diff.
   patch             Write unified diff for ALL files (git diff FROM TO) to a .patch file.
@@ -35,6 +51,13 @@ from pathlib import Path
 
 DEFAULT_FROM_REF = "main-backup-for-mac-claude-repo-04-07-2026"
 DEFAULT_TO_REF = "main"
+
+
+def cmd_fetch(repo: Path, remote: str) -> int:
+    """Optional ``git fetch`` so local main (or remote-tracking refs) are current."""
+    print(f"[update-main-sync] git fetch {remote}")
+    r = subprocess.run(["git", "fetch", remote], cwd=repo)
+    return r.returncode
 
 
 def run_git(args: list[str], cwd: Path | None = None) -> str:
@@ -313,6 +336,17 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="For publish-rag-eval: print actions only",
     )
+    parser.add_argument(
+        "--fetch",
+        action="store_true",
+        help="Before comparing: run git fetch <remote> (useful on Windows if origin moved)",
+    )
+    parser.add_argument(
+        "--fetch-remote",
+        default="origin",
+        metavar="NAME",
+        help="Remote for --fetch (default: origin)",
+    )
 
     args = parser.parse_args(argv)
 
@@ -328,6 +362,12 @@ def main(argv: list[str]) -> int:
 
     if args.command == "publish-rag-eval":
         return cmd_publish_rag_eval(this_script, args.rag_eval_root.expanduser(), args.dry_run)
+
+    if args.fetch:
+        rc = cmd_fetch(repo, args.fetch_remote)
+        if rc != 0:
+            return rc
+        print()
 
     # Verify refs early for clearer errors
     try:
