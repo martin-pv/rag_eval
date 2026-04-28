@@ -31,12 +31,22 @@ Example::
 
 They try ``py -3`` first, then ``python``. Patch/report outputs stay UTF-8 with LF newlines.
 
+``lines`` output format (no unified-diff noise; line numbers match ``git diff``):
+
+  === path/to/file.py ===
+  -42: removed text
+  +65: inserted text
+
+Pure insertions are only ``+N:`` lines; deletions only ``-N:``. Omits unchanged
+context lines. Use for screenshot/extraction spot-checks.
+
 Commands:
+  lines             Compact line-numbered +/- listing for extraction review (see below).
   diff              Print name-status, commits (FROM..TO), and --stat diff.
   patch             Write unified diff for ALL files (git diff FROM TO) to a .patch file.
   report            Write sync_report.json (resolved SHAs + file list + commits).
   show              Print summary from ./sync_report.json.
-  full              diff + report + show + patch (default artifact: sync_full.diff).
+  full              diff + report + show + patch; add --with-lines for compact +/- listing.
   publish-rag-eval  Copy this toolkit to ~/rag_eval/scripts.
 
 Also documented in:
@@ -53,6 +63,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -117,6 +128,106 @@ def cmd_patch(from_ref: str, to_ref: str, repo: Path, out_path: Path) -> int:
         f"Full unified diff written to {out_path.resolve()}\n"
         f"  ({from_ref} {fr[:12]}… → {to_ref} {to[:12]}…)"
     )
+    return 0
+
+
+HUNK_HEADER_RE = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+
+
+def _display_path_from_diff_git(line: str) -> str:
+    """Second path from ``diff --git`` line (prefer ``b/`` side)."""
+    m = re.match(r"^diff --git (.+) (.+)$", line)
+    if not m:
+        return "?"
+    a_raw, b_raw = m.group(1), m.group(2)
+    if b_raw != "/dev/null":
+        return b_raw[2:] if b_raw.startswith("b/") else b_raw
+    return a_raw[2:] if a_raw.startswith("a/") else a_raw
+
+
+def format_git_diff_as_line_numbers(diff_text: str) -> str:
+    """Turn unified diff into ``-oldline:`` / ``+newline:`` lines (no context)."""
+    out: list[str] = []
+    lines = diff_text.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.startswith("diff --git"):
+            out.append("")
+            out.append(f"=== {_display_path_from_diff_git(line)} ===")
+            i += 1
+            continue
+        if line.startswith("Binary files ") and line.endswith(" differ"):
+            out.append(line)
+            i += 1
+            continue
+        if line.startswith("@@"):
+            m = HUNK_HEADER_RE.match(line)
+            if not m:
+                i += 1
+                continue
+            old_line = int(m.group(1)) - 1
+            new_line = int(m.group(2)) - 1
+            i += 1
+            while i < len(lines):
+                l = lines[i]
+                if l.startswith("diff --git") or l.startswith("@@"):
+                    break
+                if l.startswith("Binary files"):
+                    break
+                if not l:
+                    i += 1
+                    continue
+                kind = l[0]
+                body = l[1:]
+                if kind == " ":
+                    old_line += 1
+                    new_line += 1
+                elif kind == "-":
+                    old_line += 1
+                    out.append(f"-{old_line}: {body}")
+                elif kind == "+":
+                    new_line += 1
+                    out.append(f"+{new_line}: {body}")
+                elif kind == "\\":
+                    pass
+                else:
+                    pass
+                i += 1
+            continue
+        i += 1
+
+    text = "\n".join(out).strip()
+    return text + ("\n" if text else "")
+
+
+def cmd_lines(
+    from_ref: str,
+    to_ref: str,
+    repo: Path,
+    out_target: Path | str | None,
+    unified: int,
+) -> int:
+    diff_text = subprocess.check_output(
+        [
+            "git",
+            "diff",
+            f"-U{unified}",
+            "--no-color",
+            "--no-ext-diff",
+            from_ref,
+            to_ref,
+        ],
+        cwd=repo,
+        text=True,
+        errors="replace",
+    )
+    body = format_git_diff_as_line_numbers(diff_text)
+    if out_target is None or str(out_target) == "-":
+        sys.stdout.write(body)
+    else:
+        Path(out_target).write_text(body, encoding="utf-8", newline="\n")
+        print(f"Line-number listing written to {Path(out_target).resolve()}")
     return 0
 
 
@@ -216,6 +327,9 @@ def cmd_full(
     report_path: Path,
     patch_path: Path,
     skip_patch: bool,
+    with_lines: bool,
+    lines_out: str,
+    unified: int,
 ) -> int:
     cmd_diff(from_ref, to_ref, repo)
     print()
@@ -225,6 +339,10 @@ def cmd_full(
     if not skip_patch:
         print()
         cmd_patch(from_ref, to_ref, repo, patch_path)
+    if with_lines:
+        print()
+        lo = None if lines_out == "-" else Path(lines_out)
+        cmd_lines(from_ref, to_ref, repo, lo, unified)
     return 0
 
 
@@ -337,8 +455,8 @@ def main(argv: list[str]) -> int:
         "command",
         nargs="?",
         default="full",
-        choices=("diff", "patch", "report", "show", "full", "publish-rag-eval"),
-        help="diff | patch | report | show | full | publish-rag-eval (default: full)",
+        choices=("lines", "diff", "patch", "report", "show", "full", "publish-rag-eval"),
+        help="lines | diff | patch | report | show | full | publish-rag-eval (default: full)",
     )
     parser.add_argument(
         "--from-ref",
@@ -397,6 +515,25 @@ def main(argv: list[str]) -> int:
         metavar="NAME",
         help="Remote for --fetch (default: origin)",
     )
+    parser.add_argument(
+        "--lines-out",
+        type=str,
+        default="sync_lines.txt",
+        metavar="PATH",
+        help="For 'lines' / --with-lines: output file, or '-' for stdout (default: sync_lines.txt)",
+    )
+    parser.add_argument(
+        "--unified",
+        type=int,
+        default=0,
+        metavar="N",
+        help="git diff -U value for line listing (default: 0, context-free)",
+    )
+    parser.add_argument(
+        "--with-lines",
+        action="store_true",
+        help="With 'full': also write compact -N:/+N: listing (--lines-out, --unified)",
+    )
 
     args = parser.parse_args(argv)
 
@@ -436,6 +573,9 @@ def main(argv: list[str]) -> int:
 
     if args.command == "diff":
         return cmd_diff(from_ref, to_ref, repo)
+    if args.command == "lines":
+        lo = None if args.lines_out == "-" else Path(args.lines_out)
+        return cmd_lines(from_ref, to_ref, repo, lo, args.unified)
     if args.command == "patch":
         return cmd_patch(from_ref, to_ref, repo, patch_path)
     if args.command == "report":
@@ -443,7 +583,17 @@ def main(argv: list[str]) -> int:
     if args.command == "show":
         return cmd_show(report_path)
     if args.command == "full":
-        return cmd_full(from_ref, to_ref, repo, report_path, patch_path, args.no_patch)
+        return cmd_full(
+            from_ref,
+            to_ref,
+            repo,
+            report_path,
+            patch_path,
+            args.no_patch,
+            args.with_lines,
+            args.lines_out,
+            args.unified,
+        )
 
     return 0
 
