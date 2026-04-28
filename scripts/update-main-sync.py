@@ -12,7 +12,10 @@ Commands:
   report [SNAPSHOT] Write sync_report.json in the current directory.
   show              Print human-readable summary from ./sync_report.json.
   full [SNAPSHOT]   Run diff, then report, then show (typical “review sync” pass).
-  publish-rag-eval  Copy this script + companion wrappers to rag_eval (see --rag-eval-root).
+  publish-rag-eval  Copy this script + companion wrappers to ~/rag_eval/scripts (see --rag-eval-root).
+
+Canonical checkout path (avoid repo-root `scripts/` — it matches `.gitignore` `Scripts/` on macOS):
+  Pratt-Backend/devscripts/update-main-sync/
 
 Environment:
   RAG_EVAL_ROOT     Override default ~/rag_eval for publish-rag-eval.
