@@ -17,13 +17,11 @@ RAGAS is the primary semantic evaluator framework, while the harness keeps Pratt
 - `app_retrieval/evaluation/config.py`
 - `app_retrieval/evaluation/config/eval_config.py`
 - `app_retrieval/evaluation/ragas_factory.py`
-- `app_retrieval/evaluation/retriever.py`
-- `app_retrieval/evaluation/runner.py`
-- `app_retrieval/evaluation/reporters/`
-- `app_retrieval/evaluation/metrics/`
+- `app_retrieval/evaluation/harness.py`
 - `app_retrieval/management/commands/rag_eval.py`
-- `tests/app_retrieval/test_eval_config.py`
-- `tests/app_retrieval/test_eval_runner.py`
+- `tests/app_retrieval/test_eval_harness.py`
+
+The transfer script intentionally consolidates the harness into fewer files. `harness.py` contains the shared retriever adapters, runner, reporter helpers, and placeholder metric hooks. Later metric tickets can still replace or add focused metric modules where needed.
 
 ## Evaluator Config Ownership
 
@@ -49,7 +47,7 @@ from app.settings_intellisense import settings
 It should provide:
 
 - `AzureChatOpenAI` for RAGAS judge/generator paths.
-- `AzureOpenAIEmbeddings` for PrattWise Azure embeddings.
+- `AzureOpenAIEmbeddings` for PrattWise default embeddings.
 - `langchain_openai.OpenAIEmbeddings` for direct OpenAI embeddings when LanceDB smoke tests or non-Azure configs require it.
 - `langchain_openai.llms.AzureOpenAI` for completion-style RAGAS flows when needed.
 - `ragas.embeddings.OpenAIEmbeddings` as a direct OpenAI option for non-Azure experiments.
@@ -101,8 +99,7 @@ Expected behavior:
 Start with non-live structural tests:
 
 ```cmd
-uv run pytest tests/app_retrieval/test_eval_config.py -v
-uv run pytest tests/app_retrieval/test_eval_runner.py -v
+uv run pytest tests/app_retrieval/test_eval_harness.py -v
 uv run python -c "from langchain_core.documents import Document; import ragas; print('ragas/langchain OK')"
 ```
 
@@ -110,4 +107,4 @@ Live RAGAS/model tests should be opt-in and skipped unless credentials and appro
 
 ## Branching and Commit Behavior
 
-The runtime implementation should branch from the shared `ragas-rag-evaluation` parent. The transfer script still supports repeatable local use by bootstrapping from local `main-backup-for-mac-claude-repo-04-07-2026`, switching or creating `ngaip-363-rag-evaluation-harness`, applying files, and committing locally without pushing.
+The runtime implementation should branch from the shared `ragas-rag-evaluation` parent. The transfer script still supports repeatable local use by bootstrapping from local `main-backup-for-mac-claude-repo-04-07-2026`, switching or creating `ngaip-363-rag-evaluation-harness`, applying files, removing obsolete split harness files, force-adding generated tests with `git add -f`, and committing locally without pushing.

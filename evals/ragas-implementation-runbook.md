@@ -1462,7 +1462,7 @@ Suggested test groups:
 
 - `test_gold_dataset_generation.py`: includes gold loader and candidate promotion tests with no live RAGAS calls.
 - `test_gold_dataset_generation.py`: also mocks document loading, Azure OpenAI factory, RAGAS generation, and candidate writing.
-- `test_eval_config.py`: no RAGAS calls.
+- `test_eval_harness.py`: consolidated NGAIP-363 config, runner, retriever selection, reporter, and placeholder metric tests with no live RAGAS calls.
 - `test_ragas_adapter.py`: no live LLM; verify input mapping.
 - `test_metric_context_relevancy.py`: deterministic plus mocked RAGAS.
 - `test_metric_citation_accuracy.py`: deterministic plus mocked RAGAS faithfulness.
