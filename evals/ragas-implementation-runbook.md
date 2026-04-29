@@ -345,6 +345,84 @@ def normalize_ragas_testset(testset, documents: Sequence[Document]) -> list[dict
 
 The actual `generator_llm`, `critic_llm`, and `embeddings` should come from the same evaluator config used by the harness. For Azure OpenAI, build those objects in one shared RAGAS/LangChain factory owned by `NGAIP-363`.
 
+### Using RAGAS Testset Generator for the Golden Set
+
+Use the RAGAS testset generator as the first draft of the golden set, not as an automatic replacement for human-approved gold data.
+
+The intended `NGAIP-362` workflow is:
+
+1. Load approved source documents into LangChain `Document` objects.
+2. Run the RAGAS testset generator.
+3. Save the output to `candidate_testset.jsonl`.
+4. Human-review each candidate row.
+5. Promote only `approved` or `edited` rows into `gold.jsonl`.
+6. Validate `gold.jsonl` with the Pydantic `GoldRow` schema.
+7. Use the validated `gold.jsonl` as the official golden set for `NGAIP-363`, `NGAIP-365`, `NGAIP-364`, and `NGAIP-366`.
+
+Recommended file owned by `NGAIP-362`: `app_retrieval/evaluation/gold_promoter.py`
+
+```python
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from app_retrieval.evaluation.config.gold_schema import GoldRow
+
+
+PROMOTABLE_STATUSES = {"approved", "edited"}
+
+
+def promote_candidates_to_gold(candidate_path: Path, gold_path: Path) -> list[GoldRow]:
+    """Promote reviewed RAGAS-generated candidates into the official gold set."""
+    promoted: list[GoldRow] = []
+
+    for line in candidate_path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if row.get("review_status") not in PROMOTABLE_STATUSES:
+            continue
+
+        gold_row = GoldRow(
+            question_id=row.get("question_id") or row["candidate_id"],
+            question=row["question"],
+            gold_answer=row["reference_answer"],
+            gold_doc_id=row["source_metadata"][0]["asset_id"],
+            gold_chunk_ids=[
+                item["chunk_id"]
+                for item in row.get("source_metadata", [])
+                if item.get("chunk_id")
+            ]
+            or None,
+            tags=row.get("tags"),
+        )
+        promoted.append(gold_row)
+
+    gold_path.parent.mkdir(parents=True, exist_ok=True)
+    with gold_path.open("w", encoding="utf-8") as handle:
+        for row in promoted:
+            handle.write(row.model_dump_json(exclude_none=True) + "\n")
+
+    return promoted
+```
+
+Recommended commands:
+
+```cmd
+uv run python -m app_retrieval.evaluation.testset_generator --input approved_docs.jsonl --output candidate_testset.jsonl --size 50
+uv run python -m app_retrieval.evaluation.gold_promoter --input candidate_testset.reviewed.jsonl --output gold.jsonl
+uv run pytest tests/app_retrieval/test_gold_loader.py tests/app_retrieval/test_gold_promoter.py -v
+```
+
+Golden set acceptance rules:
+
+- Every generated row must retain source provenance.
+- Every promoted row must pass `GoldRow` validation.
+- Generated answers must be reviewed against the source document before promotion.
+- Rejected candidates must remain outside `gold.jsonl`.
+- Edited candidates should preserve both the original generated value and final reviewed value when possible.
+
 Each candidate row should preserve enough provenance to support human review and later citation scoring:
 
 - Source document id or `asset_id`.
@@ -872,10 +950,12 @@ Implementation checklist:
 - Add `app_retrieval/evaluation/gold_loader.py`.
 - Add `app_retrieval/evaluation/langchain_document_loader.py`.
 - Add a RAGAS testset-generator wrapper for producing candidate rows from approved source documents.
+- Add `app_retrieval/evaluation/gold_promoter.py` to convert reviewed RAGAS candidates into official gold rows.
 - Add an intermediate candidate schema/document explaining review status and provenance fields.
 - Add tests for valid rows, missing fields, invalid JSON, extra fields, and optional spans/chunk ids.
 - Add tests for LangChain `Document` loading and provenance preservation.
 - Add tests for converting mocked RAGAS-generated examples into candidate rows.
+- Add tests for promoting only approved/edited candidates into the official golden set.
 
 Use Pydantic here.
 
@@ -899,6 +979,7 @@ Done when:
 
 - Gold fixture loads successfully.
 - Invalid rows fail with useful errors.
+- RAGAS-generated candidates can be reviewed and promoted into validated `gold.jsonl`.
 - Tests run under Django/pytest without live RAGAS credentials.
 
 ### NGAIP-363: RAG Evaluation Harness
@@ -1086,6 +1167,7 @@ uv run pytest tests/app_retrieval -v
 Suggested test groups:
 
 - `test_gold_loader.py`: no RAGAS calls.
+- `test_gold_promoter.py`: no RAGAS calls; verifies reviewed candidates become valid `GoldRow` rows.
 - `test_eval_config.py`: no RAGAS calls.
 - `test_ragas_adapter.py`: no live LLM; verify input mapping.
 - `test_metric_context_relevancy.py`: deterministic plus mocked RAGAS.
