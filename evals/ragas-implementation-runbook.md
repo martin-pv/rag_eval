@@ -110,6 +110,7 @@ From the backend project directory:
 ```cmd
 cd path\to\Pratt-Backend\backend
 uv add ragas datasets
+uv add langchain langchain-core langchain-openai langchain-community
 uv add --dev pytest pytest-django pytest-asyncio
 uv sync --group dev
 ```
@@ -118,14 +119,18 @@ If the runtime machine needs pinned versions, start with:
 
 ```cmd
 uv add ragas>=0.2.0 datasets>=2.14.0
+uv add langchain==0.3.10 langchain-community==0.3.4 langchain-core==0.3.21 langchain-openai==0.2.11
 uv add --dev pytest==8.3.3 pytest-django==4.9.0 pytest-asyncio==0.23.8
 uv sync --group dev
 ```
+
+The reconstructed backend already lists LangChain packages in `requirements.txt`, but add them to `pyproject.toml` through `uv` if the runtime branch is missing them.
 
 Validate that Django pytest setup works:
 
 ```cmd
 uv run pytest --version
+uv run python -c "from langchain_core.documents import Document; import ragas; print('ragas/langchain OK')"
 uv run pytest tests/app_retrieval -v
 ```
 
@@ -141,6 +146,12 @@ Normal Django tests do not require `python manage.py runserver`. Start the serve
 ## RAGAS Testset Generator
 
 Use the RAGAS testset generator to create candidate evaluation examples from approved PrattWise/Samba source documents.
+
+Ticket ownership:
+
+- `NGAIP-362` owns loading approved source documents into LangChain `Document` objects, generating candidate testsets, preserving provenance, and promoting reviewed rows into the gold dataset.
+- `NGAIP-363` owns the reusable harness pieces that later consume the approved gold rows.
+- `NGAIP-415` owns the report/schema fields that describe generated, reviewed, and approved testset provenance.
 
 Important rule:
 
@@ -161,10 +172,83 @@ Recommended flow:
 Suggested files:
 
 ```text
+app_retrieval/evaluation/langchain_document_loader.py
 app_retrieval/evaluation/testset_generator.py
 app_retrieval/evaluation/config/candidate_testset.schema.md
+tests/app_retrieval/test_langchain_document_loader.py
 tests/app_retrieval/test_testset_generator.py
 ```
+
+### LangChain Document Loader Code
+
+`NGAIP-362` should add a loader that turns approved document exports into LangChain `Document` objects. The backend already has LangChain packages in `requirements.txt`, so use `langchain_core.documents.Document` as the stable object shape that RAGAS testset generation can consume.
+
+Recommended file: `app_retrieval/evaluation/langchain_document_loader.py`
+
+```python
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Iterable
+
+from langchain_core.documents import Document
+
+
+REQUIRED_SOURCE_FIELDS = {"asset_id", "text"}
+
+
+def load_langchain_documents(path: Path) -> list[Document]:
+    """Load approved source-document JSONL into LangChain Documents.
+
+    Expected JSONL fields:
+      - asset_id: PrattWise stable source id
+      - text: source text used for testset generation
+      - title/page/section/chunk_id: optional provenance fields
+    """
+    docs: list[Document] = []
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Invalid source document JSON at line {line_number}: {exc}") from exc
+
+        missing = REQUIRED_SOURCE_FIELDS - row.keys()
+        if missing:
+            raise ValueError(f"Missing source document fields at line {line_number}: {sorted(missing)}")
+
+        metadata = {k: v for k, v in row.items() if k != "text"}
+        metadata["source_line"] = line_number
+        docs.append(Document(page_content=row["text"], metadata=metadata))
+
+    return docs
+
+
+def dump_candidate_rows(path: Path, rows: Iterable[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+```
+
+Use JSONL rather than raw filesystem crawling for the first implementation because it is easier to control approved documents, redact content, preserve `asset_id`, and screenshot/review the exact source list. If later needed, add optional `DirectoryLoader`/`TextLoader` support behind the same `load_langchain_documents()` output shape.
+
+Example approved source JSONL:
+
+```json
+{"asset_id":"asset-001","title":"Approved Maintenance Extract","page":12,"section":"Inspection","chunk_id":"chunk-001","text":"Approved source text goes here."}
+```
+
+Loader tests should verify:
+
+- Valid JSONL returns LangChain `Document` objects.
+- `asset_id` and provenance fields are preserved in `metadata`.
+- Missing `asset_id` or `text` raises `ValueError`.
+- Invalid JSON raises `ValueError` with a line number.
+
+### RAGAS Testset Generator Code
 
 The generator wrapper should isolate RAGAS API details because RAGAS testset APIs can change between versions. Keep the rest of the harness dependent on a stable PrattWise function, for example:
 
@@ -172,6 +256,88 @@ The generator wrapper should isolate RAGAS API details because RAGAS testset API
 def generate_candidate_testset(source_docs: list[dict], *, size: int) -> list[dict]:
     ...
 ```
+
+Recommended file: `app_retrieval/evaluation/testset_generator.py`
+
+```python
+from __future__ import annotations
+
+from collections.abc import Sequence
+from importlib.metadata import version
+
+from langchain_core.documents import Document
+
+
+def _ragas_version() -> str:
+    try:
+        return version("ragas")
+    except Exception:
+        return "unknown"
+
+
+def generate_candidate_testset(
+    documents: Sequence[Document],
+    *,
+    size: int,
+    generator_llm,
+    critic_llm,
+    embeddings,
+) -> list[dict]:
+    """Generate candidate QA/reference rows with RAGAS.
+
+    Keep this wrapper small and version-isolated. If the installed RAGAS API
+    changes, update this file without changing the Django command or gold schema.
+    """
+    try:
+        from ragas.testset import TestsetGenerator
+    except ImportError:
+        from ragas.testset.generator import TestsetGenerator
+
+    generator = TestsetGenerator.from_langchain(
+        generator_llm=generator_llm,
+        critic_llm=critic_llm,
+        embeddings=embeddings,
+    )
+    testset = generator.generate_with_langchain_docs(
+        list(documents),
+        test_size=size,
+    )
+    return normalize_ragas_testset(testset, documents)
+
+
+def normalize_ragas_testset(testset, documents: Sequence[Document]) -> list[dict]:
+    """Convert RAGAS output into PrattWise candidate rows.
+
+    The exact RAGAS object shape can vary by version, so keep normalization here.
+    """
+    if hasattr(testset, "to_pandas"):
+        records = testset.to_pandas().to_dict(orient="records")
+    elif hasattr(testset, "to_list"):
+        records = testset.to_list()
+    else:
+        records = list(testset)
+
+    source_metadata = [doc.metadata for doc in documents]
+    rows: list[dict] = []
+    for index, record in enumerate(records, start=1):
+        rows.append(
+            {
+                "candidate_id": f"candidate-{index:04d}",
+                "question": record.get("question") or record.get("user_input"),
+                "reference_answer": record.get("ground_truth") or record.get("reference"),
+                "supporting_context": record.get("contexts") or record.get("reference_contexts"),
+                "source_metadata": source_metadata,
+                "review_status": "candidate",
+                "generator": {
+                    "framework": "ragas",
+                    "ragas_version": _ragas_version(),
+                },
+            }
+        )
+    return rows
+```
+
+The actual `generator_llm`, `critic_llm`, and `embeddings` should come from the same evaluator config used by the harness. For Azure OpenAI, build those objects in one shared RAGAS/LangChain factory owned by `NGAIP-363`.
 
 Each candidate row should preserve enough provenance to support human review and later citation scoring:
 
@@ -198,7 +364,13 @@ Use live evaluator/generator credentials only for manual or gated smoke runs. St
 
 ## RAGAS Configuration
 
-Add an evaluator section to the RAG evaluation config so live model calls are explicit and reproducible:
+Ticket ownership:
+
+- `NGAIP-363` must add the evaluator section to the RAG evaluation config and implement the config loader/factory code.
+- `NGAIP-415` must define the required evaluator metadata fields in `metrics_spec.yaml` and `eval_report.schema.json`.
+- `NGAIP-365`, `NGAIP-364`, and `NGAIP-366` consume this config when they call RAGAS metrics.
+
+Add an evaluator section to the RAG evaluation config in `NGAIP-363` so live model calls are explicit and reproducible:
 
 ```yaml
 evaluator:
@@ -231,6 +403,98 @@ Report metadata should include:
   }
 }
 ```
+
+### Evaluator Config Code
+
+Recommended file owned by `NGAIP-363`: `app_retrieval/evaluation/config/eval_config.py`
+
+```python
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+
+@dataclass(frozen=True)
+class RagasEvaluatorConfig:
+    framework: str = "ragas"
+    enabled: bool = False
+    provider: str = "azure_openai"
+    model: str | None = None
+    embeddings: str | None = None
+    temperature: float = 0
+    timeout_seconds: int = 120
+    max_retries: int = 2
+
+
+@dataclass(frozen=True)
+class EvalConfig:
+    metrics_spec_version: str
+    evaluator: RagasEvaluatorConfig
+    raw: dict[str, Any]
+
+
+def load_eval_config(path: Path) -> EvalConfig:
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    evaluator_data = data.get("evaluator", {})
+    evaluator = RagasEvaluatorConfig(**evaluator_data)
+    if evaluator.framework != "ragas":
+        raise ValueError(f"Unsupported evaluator framework: {evaluator.framework}")
+    return EvalConfig(
+        metrics_spec_version=str(data.get("metrics_spec_version", "unknown")),
+        evaluator=evaluator,
+        raw=data,
+    )
+```
+
+Recommended file owned by `NGAIP-363`: `app_retrieval/evaluation/ragas_factory.py`
+
+```python
+from __future__ import annotations
+
+import os
+
+from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
+
+from app_retrieval.evaluation.config.eval_config import RagasEvaluatorConfig
+
+
+def build_ragas_langchain_models(config: RagasEvaluatorConfig):
+    """Build LangChain models for RAGAS metrics and testset generation."""
+    if config.provider != "azure_openai":
+        raise ValueError(f"Unsupported RAGAS provider: {config.provider}")
+    if not config.model:
+        raise ValueError("RAGAS evaluator model deployment is required")
+    if not config.embeddings:
+        raise ValueError("RAGAS embedding deployment is required")
+
+    llm = AzureChatOpenAI(
+        azure_deployment=config.model,
+        api_key=os.environ["AZURE_OPENAI_API_KEY"],
+        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+        api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
+        temperature=config.temperature,
+        timeout=config.timeout_seconds,
+        max_retries=config.max_retries,
+    )
+    embeddings = AzureOpenAIEmbeddings(
+        azure_deployment=config.embeddings,
+        api_key=os.environ["AZURE_OPENAI_API_KEY"],
+        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+        api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
+    )
+    return llm, embeddings
+```
+
+The same factory can be used by:
+
+- `NGAIP-362` testset generation.
+- `NGAIP-365` context metrics.
+- `NGAIP-364` faithfulness/grounding.
+- `NGAIP-366` answer metrics.
 
 ## Can RAGAS Evaluations Run as Django Tests?
 
@@ -309,9 +573,11 @@ Implementation checklist:
 - Add `app_retrieval/evaluation/config/gold_schema.md`.
 - Add redacted CI fixture such as `ci_gold.jsonl`.
 - Add `app_retrieval/evaluation/gold_loader.py`.
+- Add `app_retrieval/evaluation/langchain_document_loader.py`.
 - Add a RAGAS testset-generator wrapper for producing candidate rows from approved source documents.
 - Add an intermediate candidate schema/document explaining review status and provenance fields.
 - Add tests for valid rows, missing fields, invalid JSON, extra fields, and optional spans/chunk ids.
+- Add tests for LangChain `Document` loading and provenance preservation.
 - Add tests for converting mocked RAGAS-generated examples into candidate rows.
 
 Use Pydantic here.
@@ -347,6 +613,8 @@ Implementation checklist:
 - Add `app_retrieval/evaluation/` package.
 - Add config loader.
 - Add Django management command, for example `python manage.py rag_eval run --config ...`.
+- Add the `evaluator` config section and parser.
+- Add the RAGAS/LangChain model factory.
 - Add retriever adapters for semantic, keyword, and hybrid modes.
 - Add metric registry.
 - Add JSON and CSV reporters.
@@ -377,6 +645,7 @@ Implementation checklist:
 - Include RAGAS metric ids and deterministic adapter ids.
 - Include `metrics_spec_version`.
 - Include evaluator metadata requirements.
+- Require report fields for testset generator provenance where candidate or generated gold rows were used.
 - Add tests that validate required metric ids and report schema structure.
 
 Recommended metric ids:
@@ -563,9 +832,10 @@ Every per-question score should include fields from 415, even if some are `null`
 - Add dependencies through `uv add`, then run `uv sync --group dev`.
 - Confirm `uv run pytest --version`.
 - Implement 362 data contract with Pydantic validation.
+- Implement 362 LangChain `Document` loader for approved source documents.
 - Add RAGAS testset generation for candidate QA/reference rows and require human review before promotion to gold.
-- Implement 363 harness and RAGAS adapter layer.
-- Implement 415 metric/report contract.
+- Implement 363 harness, evaluator config parser, RAGAS/LangChain factory, and RAGAS adapter layer.
+- Implement 415 metric/report contract, including evaluator and testset provenance fields.
 - Implement 365 RAGAS context metrics and token-overlap diagnostic.
 - Implement 364 RAGAS faithfulness plus deterministic citation metadata checks.
 - Implement 366 RAGAS answer metrics plus human annotation export.
