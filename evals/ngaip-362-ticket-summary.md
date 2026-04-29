@@ -86,7 +86,7 @@ Only run live RAGAS generation after Azure OpenAI settings and approved source d
 
 If the runtime uses Pratt ModelHub, `NGAIP-362` should obtain its RAGAS LLM and embedding objects from the `NGAIP-363` factory. The teammate `prattwise-scripts` reference used ModelHub as the gateway while still providing an OpenAI-compatible model to RAGAS.
 
-The generated `sample_gold.jsonl` is a sanitized five-row fixture for testing schema validation, RAGAS row conversion, and harness/report plumbing before a real approved corpus is available.
+The generated `sample_gold.jsonl` is a sanitized 50-row fixture for testing schema validation, RAGAS row conversion, and harness/report plumbing before a real approved corpus is available.
 
 ## Branching and Commit Behavior
 
@@ -109,7 +109,7 @@ Code/file breakdown:
 
 - `config/gold_schema.py`: defines `GoldRow`, validates required fields, and converts rows to RAGAS-compatible sample dictionaries.
 - `config/ci_gold.jsonl`: one tiny fixture for fast CI smoke checks.
-- `config/sample_gold.jsonl`: five sanitized rows for local harness testing before approved corpus data exists.
+- `config/sample_gold.jsonl`: 50 sanitized rows for local harness testing before approved corpus data exists.
 - `gold_dataset.py`: loads JSONL, validates rows, converts rows to RAGAS datasets, and promotes reviewed candidates into the official gold set.
 - `golden_test_generator.py`: loads LangChain/LanceDB documents, attaches knowledge graph context, runs RAGAS `TestsetGenerator`, and normalizes version-dependent RAGAS output.
 - `test_gold_dataset_generation.py`: verifies schema conversion, fixture validity, KG context attachment, and RAGAS testset normalization without live model calls.

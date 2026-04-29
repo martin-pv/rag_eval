@@ -103,7 +103,7 @@ Code/file breakdown:
 - `metrics/context_relevancy.py`: thin metric module that builds/uses RAGAS context metrics through the shared adapter and exposes deterministic overlap diagnostics.
 - `tests/test_context_relevancy.py`: verifies RAGAS input shaping, empty retrieval handling, deterministic overlap behavior, and evaluator metadata plumbing.
 - `harness.py` from `NGAIP-363`: supplies retrieved contexts from semantic, keyword, or hybrid retrieval paths.
-- `sample_gold.jsonl` from `NGAIP-362`: gives a small fixture for validating context conversion before real corpus data is ready.
+- `sample_gold.jsonl` from `NGAIP-362`: gives a 50-row fixture for validating context conversion before real corpus data is ready.
 
 This choice aligns the metric with the user-visible RAG experience: the question is whether retrieved context can support the answer, not whether the same exact words appear.
 

@@ -1,6 +1,6 @@
 # Sample Golden Set
 
-`sample_gold.jsonl` is a small, sanitized golden set for local RAG evaluation smoke tests.
+`sample_gold.jsonl` is a 50-row sanitized golden set for local RAG evaluation smoke tests and larger harness dry runs.
 
 It is intentionally generic and does not represent Pratt & Whitney proprietary source material. Use it to verify:
 
