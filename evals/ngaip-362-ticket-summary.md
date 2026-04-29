@@ -26,31 +26,22 @@ Pydantic is still used here because it validates the gold data schema. RAGAS eva
 - `app_retrieval/evaluation/config/gold_schema.py`
 - `app_retrieval/evaluation/config/gold_schema.md`
 - `app_retrieval/evaluation/config/ci_gold.jsonl`
-- `app_retrieval/evaluation/gold_loader.py`
-- `app_retrieval/evaluation/langchain_document_loader.py`
-- `app_retrieval/evaluation/knowledge_graph_context.py`
-- `app_retrieval/evaluation/testset_generator.py`
+- `app_retrieval/evaluation/gold_dataset.py`
 - `app_retrieval/evaluation/golden_test_generator.py`
-- `app_retrieval/evaluation/gold_promoter.py`
-- focused tests in `tests/app_retrieval/`
+- `tests/app_retrieval/test_gold_dataset_generation.py`
 
 ## Golden Set Flow
 
-1. Use the existing PrattWise LanceDB vector store as the primary source of approved chunks.
-2. Load LanceDB rows into LangChain `Document` objects with `asset_id`, `chunk_id`, content type, and source metadata.
-3. Keep JSONL export loading only as an offline/redacted fallback.
-4. Load or construct knowledge graph context for the same corpus.
-5. Serialize KG nodes and relationships into readable context text.
-6. Attach KG context to the LangChain documents before candidate generation.
-7. Run the RAGAS `TestsetGenerator` to create candidate questions, reference answers, and supporting context.
-8. Write candidates to `candidate_testset.jsonl`.
-9. Human reviewers mark each candidate `approved`, `edited`, or `rejected`.
-10. Promote only approved/edited candidates through `gold_promoter.py`.
-11. Validate promoted rows with `GoldRow` before the official gold JSONL is used by the harness.
-
-## LanceDB Loader Requirement
-
-The loader should use `lancedb` to read the existing vector-store table and `langchain_core.documents.Document` as the adapter object for RAGAS. It should not create a separate vector store for evaluation. It must map the real table text field, preserve source metadata, and avoid copying vector columns into metadata.
+1. Export or curate approved source documents from PrattWise/Samba.
+2. Load them into LangChain `Document` objects with `asset_id`, `chunk_id`, content type, and source metadata.
+3. Load or construct knowledge graph context for the same corpus.
+4. Serialize KG nodes and relationships into readable context text.
+5. Attach KG context to the LangChain documents before candidate generation.
+6. Run the RAGAS `TestsetGenerator` to create candidate questions, reference answers, and supporting context.
+7. Write candidates to `candidate_testset.jsonl`.
+8. Human reviewers mark each candidate `approved`, `edited`, or `rejected`.
+9. Promote only approved/edited candidates through `gold_dataset.py`.
+10. Validate promoted rows with `GoldRow` before the official gold JSONL is used by the harness.
 
 ## RAGAS Role
 
@@ -76,7 +67,7 @@ Use `content_type` or metadata tags such as `text`, `table`, `ocr`, `graph`, or 
 This ticket depends on the shared RAGAS branch setup:
 
 ```cmd
-uv add ragas datasets lancedb
+uv add ragas datasets
 uv add langchain langchain-core langchain-openai langchain-community
 uv add --dev pytest pytest-django pytest-asyncio
 uv sync --group dev
@@ -87,11 +78,7 @@ uv sync --group dev
 Run structural tests first, without live model calls:
 
 ```cmd
-uv run pytest tests/app_retrieval/test_gold_loader.py -v
-uv run pytest tests/app_retrieval/test_langchain_document_loader.py -v
-uv run pytest tests/app_retrieval/test_knowledge_graph_context.py -v
-uv run pytest tests/app_retrieval/test_testset_generator.py -v
-uv run pytest tests/app_retrieval/test_gold_promoter.py -v
+uv run pytest tests/app_retrieval/test_gold_dataset_generation.py -v
 ```
 
 Only run live RAGAS generation after Azure OpenAI settings and approved source documents are available.

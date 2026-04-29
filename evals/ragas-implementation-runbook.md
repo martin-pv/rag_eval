@@ -20,11 +20,8 @@ Copy/paste-ready templates, subject to small import/path adjustments on the runt
 
 | Ticket | Paste Into File | Purpose |
 |---|---|---|
-| `NGAIP-362` | `app_retrieval/evaluation/langchain_document_loader.py` | Load existing LanceDB rows or approved exports into LangChain `Document` objects for RAGAS testset generation. |
-| `NGAIP-362` | `app_retrieval/evaluation/knowledge_graph_context.py` | Serialize PrattWise knowledge graph nodes/links as extra generation context. |
-| `NGAIP-362` | `app_retrieval/evaluation/testset_generator.py` | Wrap RAGAS `TestsetGenerator` and normalize generated candidates. |
-| `NGAIP-362` | `app_retrieval/evaluation/golden_test_generator.py` | Orchestrate document loading, Azure OpenAI model creation, RAGAS testset generation, and candidate export. |
-| `NGAIP-362` | `app_retrieval/evaluation/gold_promoter.py` | Promote reviewed RAGAS-generated candidates into the official Pydantic-validated gold set. |
+| `NGAIP-362` | `app_retrieval/evaluation/gold_dataset.py` | Load/validate official gold JSONL rows and promote reviewed candidates into gold rows. |
+| `NGAIP-362` | `app_retrieval/evaluation/golden_test_generator.py` | Load LanceDB/JSONL documents, attach KG context, run RAGAS `TestsetGenerator`, normalize candidates, and export candidate rows. |
 | `NGAIP-363` | `app_retrieval/evaluation/config/eval_config.py` | Parse evaluator config, including the `evaluator:` section. |
 | `NGAIP-363` | `app_retrieval/evaluation/ragas_factory.py` | Build Azure OpenAI, Azure embeddings, and `langchain_openai.OpenAIEmbeddings` for LanceDB/RAGAS adapters. |
 
@@ -209,22 +206,19 @@ Recommended flow:
 Suggested files:
 
 ```text
-app_retrieval/evaluation/langchain_document_loader.py
-app_retrieval/evaluation/knowledge_graph_context.py
-app_retrieval/evaluation/testset_generator.py
+app_retrieval/evaluation/gold_dataset.py
+app_retrieval/evaluation/golden_test_generator.py
 app_retrieval/evaluation/config/candidate_testset.schema.md
-tests/app_retrieval/test_langchain_document_loader.py
-tests/app_retrieval/test_knowledge_graph_context.py
-tests/app_retrieval/test_testset_generator.py
+tests/app_retrieval/test_gold_dataset_generation.py
 ```
 
-### LangChain Document Loader Code
+### Consolidated Golden Test Generator Code
 
 `NGAIP-362` should add a loader that turns existing LanceDB vector-store rows into LangChain `Document` objects. The approved runtime path is LanceDB-first because PrattWise already stores retrieved chunks there. JSONL remains useful as an offline/export fallback for screenshots, review, and redacted CI fixtures.
 
-Recommended file: `app_retrieval/evaluation/langchain_document_loader.py`
+Recommended file: `app_retrieval/evaluation/golden_test_generator.py`
 
-This block is intended to be pasted into `app_retrieval/evaluation/langchain_document_loader.py` for `NGAIP-362`.
+This logic belongs in `app_retrieval/evaluation/golden_test_generator.py` for `NGAIP-362`, together with KG context attachment and RAGAS candidate normalization.
 
 ```python
 from __future__ import annotations
@@ -336,13 +330,9 @@ Loader tests should verify:
 - JSONL fallback still validates `asset_id` and `text`.
 - Missing text fields raise `ValueError`.
 
-### Knowledge Graph Context Code
+### Knowledge Graph Context Inside Golden Test Generator
 
-`NGAIP-362` should add a knowledge graph context adapter so the RAGAS testset generator can draft questions from both extracted document text and PrattWise graph relationships.
-
-Recommended file: `app_retrieval/evaluation/knowledge_graph_context.py`
-
-This block is intended to be pasted into `app_retrieval/evaluation/knowledge_graph_context.py` for `NGAIP-362`.
+`NGAIP-362` should keep the knowledge graph context adapter in `app_retrieval/evaluation/golden_test_generator.py` so the RAGAS candidate generation workflow stays in one module.
 
 ```python
 from __future__ import annotations
@@ -420,9 +410,9 @@ def generate_candidate_testset(source_docs: list[dict], *, size: int) -> list[di
     ...
 ```
 
-Recommended file: `app_retrieval/evaluation/testset_generator.py`
+Recommended file: `app_retrieval/evaluation/golden_test_generator.py`
 
-This block is intended to be pasted into `app_retrieval/evaluation/testset_generator.py` for `NGAIP-362`.
+This block is intended to be pasted into `app_retrieval/evaluation/golden_test_generator.py` for `NGAIP-362`.
 
 ```python
 from __future__ import annotations
@@ -610,9 +600,9 @@ The intended `NGAIP-362` workflow is:
 8. Validate `gold.jsonl` with the Pydantic `GoldRow` schema.
 9. Use the validated `gold.jsonl` as the official golden set for `NGAIP-363`, `NGAIP-365`, `NGAIP-364`, and `NGAIP-366`.
 
-Recommended file owned by `NGAIP-362`: `app_retrieval/evaluation/gold_promoter.py`
+Recommended file owned by `NGAIP-362`: `app_retrieval/evaluation/gold_dataset.py`
 
-This block is intended to be pasted into `app_retrieval/evaluation/gold_promoter.py` for `NGAIP-362`.
+This block is intended to be pasted into `app_retrieval/evaluation/gold_dataset.py` for `NGAIP-362`.
 
 ```python
 from __future__ import annotations
@@ -665,7 +655,7 @@ Recommended commands:
 ```cmd
 uv run python -m app_retrieval.evaluation.testset_generator --input approved_docs.jsonl --output candidate_testset.jsonl --size 50
 uv run python -m app_retrieval.evaluation.gold_promoter --input candidate_testset.reviewed.jsonl --output gold.jsonl
-uv run pytest tests/app_retrieval/test_gold_loader.py tests/app_retrieval/test_gold_promoter.py -v
+uv run pytest tests/app_retrieval/test_gold_dataset_generation.py -v
 ```
 
 Golden set acceptance rules:
@@ -695,7 +685,7 @@ Recommended commands:
 
 ```cmd
 uv run python -m app_retrieval.evaluation.testset_generator --input approved_docs.jsonl --output candidate_testset.jsonl --size 25
-uv run pytest tests/app_retrieval/test_testset_generator.py -v
+uv run pytest tests/app_retrieval/test_gold_dataset_generation.py -v
 ```
 
 Use live evaluator/generator credentials only for manual or gated smoke runs. Structural tests should mock the RAGAS generator and validate conversion/export behavior without calling a model.
@@ -1246,12 +1236,12 @@ Implementation checklist:
 - Add `app_retrieval/evaluation/config/gold_schema.py`.
 - Add `app_retrieval/evaluation/config/gold_schema.md`.
 - Add redacted CI fixture such as `ci_gold.jsonl`.
-- Add `app_retrieval/evaluation/gold_loader.py`.
-- Add `app_retrieval/evaluation/langchain_document_loader.py`.
-- Add `app_retrieval/evaluation/knowledge_graph_context.py`.
+- Add `app_retrieval/evaluation/gold_dataset.py`.
+- Add `app_retrieval/evaluation/golden_test_generator.py`.
+- Add `app_retrieval/evaluation/golden_test_generator.py`.
 - Add a RAGAS testset-generator wrapper for producing candidate rows from approved source documents.
 - Add `app_retrieval/evaluation/golden_test_generator.py` to orchestrate document loading, knowledge graph context, Azure OpenAI model creation, RAGAS testset generation, and candidate export.
-- Add `app_retrieval/evaluation/gold_promoter.py` to convert reviewed RAGAS candidates into official gold rows.
+- Add `app_retrieval/evaluation/gold_dataset.py` to convert reviewed RAGAS candidates into official gold rows.
 - Add an intermediate candidate schema/document explaining review status and provenance fields.
 - Add tests for valid rows, missing fields, invalid JSON, extra fields, and optional spans/chunk ids.
 - Add tests for LangChain `Document` loading and provenance preservation.
@@ -1470,9 +1460,8 @@ uv run pytest tests/app_retrieval -v
 
 Suggested test groups:
 
-- `test_gold_loader.py`: no RAGAS calls.
-- `test_gold_promoter.py`: no RAGAS calls; verifies reviewed candidates become valid `GoldRow` rows.
-- `test_golden_test_generator.py`: no live calls; mocks document loading, Azure OpenAI factory, RAGAS generation, and candidate writing.
+- `test_gold_dataset_generation.py`: includes gold loader and candidate promotion tests with no live RAGAS calls.
+- `test_gold_dataset_generation.py`: also mocks document loading, Azure OpenAI factory, RAGAS generation, and candidate writing.
 - `test_eval_config.py`: no RAGAS calls.
 - `test_ragas_adapter.py`: no live LLM; verify input mapping.
 - `test_metric_context_relevancy.py`: deterministic plus mocked RAGAS.
