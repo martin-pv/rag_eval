@@ -21,6 +21,7 @@ Copy/paste-ready templates, subject to small import/path adjustments on the runt
 | Ticket | Paste Into File | Purpose |
 |---|---|---|
 | `NGAIP-362` | `app_retrieval/evaluation/langchain_document_loader.py` | Load approved source exports into LangChain `Document` objects for RAGAS testset generation. |
+| `NGAIP-362` | `app_retrieval/evaluation/knowledge_graph_context.py` | Serialize PrattWise knowledge graph nodes/links as extra generation context. |
 | `NGAIP-362` | `app_retrieval/evaluation/testset_generator.py` | Wrap RAGAS `TestsetGenerator` and normalize generated candidates. |
 | `NGAIP-362` | `app_retrieval/evaluation/golden_test_generator.py` | Orchestrate document loading, Azure OpenAI model creation, RAGAS testset generation, and candidate export. |
 | `NGAIP-362` | `app_retrieval/evaluation/gold_promoter.py` | Promote reviewed RAGAS-generated candidates into the official Pydantic-validated gold set. |
@@ -209,9 +210,11 @@ Suggested files:
 
 ```text
 app_retrieval/evaluation/langchain_document_loader.py
+app_retrieval/evaluation/knowledge_graph_context.py
 app_retrieval/evaluation/testset_generator.py
 app_retrieval/evaluation/config/candidate_testset.schema.md
 tests/app_retrieval/test_langchain_document_loader.py
+tests/app_retrieval/test_knowledge_graph_context.py
 tests/app_retrieval/test_testset_generator.py
 ```
 
@@ -286,6 +289,81 @@ Loader tests should verify:
 - Missing `asset_id` or `text` raises `ValueError`.
 - Invalid JSON raises `ValueError` with a line number.
 
+### Knowledge Graph Context Code
+
+`NGAIP-362` should add a knowledge graph context adapter so the RAGAS testset generator can draft questions from both extracted document text and PrattWise graph relationships.
+
+Recommended file: `app_retrieval/evaluation/knowledge_graph_context.py`
+
+This block is intended to be pasted into `app_retrieval/evaluation/knowledge_graph_context.py` for `NGAIP-362`.
+
+```python
+from __future__ import annotations
+
+from collections.abc import Iterable
+from typing import Any
+
+from langchain_core.documents import Document
+
+
+def serialize_knowledge_graph_context(graph_data: dict[str, list[dict[str, Any]]] | None) -> str:
+    """Serialize graph nodes/links into stable text for testset generation."""
+    if not graph_data:
+        return ""
+
+    nodes = graph_data.get("nodes", [])
+    links = graph_data.get("links", [])
+    lines = ["Knowledge graph context:"]
+
+    if nodes:
+        lines.append("Entities:")
+        for node in nodes:
+            node_id = node.get("id")
+            group = node.get("group")
+            suffix = f" (group: {group})" if group is not None else ""
+            lines.append(f"- {node_id}{suffix}")
+
+    if links:
+        lines.append("Relationships:")
+        for link in links:
+            source = link.get("source")
+            target = link.get("target")
+            predicate = link.get("predicate") or "related_to"
+            lines.append(f"- {source} --{predicate}--> {target}")
+
+    return "\n".join(lines)
+
+
+def attach_knowledge_graph_context(
+    documents: Iterable[Document],
+    graph_data: dict[str, list[dict[str, Any]]] | None,
+) -> list[Document]:
+    """Append serialized graph context to LangChain Documents."""
+    graph_context = serialize_knowledge_graph_context(graph_data)
+    if not graph_context:
+        return list(documents)
+
+    enriched: list[Document] = []
+    for doc in documents:
+        metadata = dict(doc.metadata)
+        metadata["knowledge_graph_context"] = graph_context
+        metadata["has_knowledge_graph_context"] = True
+        enriched.append(
+            Document(
+                page_content=f"{doc.page_content}\n\n{graph_context}",
+                metadata=metadata,
+            )
+        )
+    return enriched
+```
+
+Graph data should come from whichever runtime graph implementation is active:
+
+- `app_retrieval.api_ladybug.get_graph_data(folder_id, content_items)`
+- `app_retrieval.api_kuzu.get_kuzu_graph_data(folder_id, content_items)`
+
+Both expose a `{"nodes": [...], "links": [...]}` shape that can be serialized for generation. The candidate rows should preserve graph context in metadata so reviewers know which entity relationships influenced each generated question.
+
 ### RAGAS Testset Generator Code
 
 The generator wrapper should isolate RAGAS API details because RAGAS testset APIs can change between versions. Keep the rest of the harness dependent on a stable PrattWise function, for example:
@@ -358,6 +436,11 @@ def normalize_ragas_testset(testset, documents: Sequence[Document]) -> list[dict
         records = list(testset)
 
     source_metadata = [doc.metadata for doc in documents]
+    knowledge_graph_context = [
+        doc.metadata["knowledge_graph_context"]
+        for doc in documents
+        if doc.metadata.get("knowledge_graph_context")
+    ]
     rows: list[dict] = []
     for index, record in enumerate(records, start=1):
         rows.append(
@@ -367,6 +450,7 @@ def normalize_ragas_testset(testset, documents: Sequence[Document]) -> list[dict
                 "reference_answer": record.get("ground_truth") or record.get("reference"),
                 "supporting_context": record.get("contexts") or record.get("reference_contexts"),
                 "source_metadata": source_metadata,
+                "knowledge_graph_context": knowledge_graph_context or None,
                 "review_status": "candidate",
                 "generator": {
                     "framework": "ragas",
@@ -381,7 +465,13 @@ The actual `generator_llm`, `critic_llm`, and `embeddings` should come from the 
 
 ### Golden Test Generator Orchestration
 
-`NGAIP-362` should include one command/module that wires the document loader, Azure OpenAI factory, and RAGAS testset generator together. This is the path that produces the candidate golden set.
+`NGAIP-362` should include one command/module that wires the document loader, knowledge graph context, Azure OpenAI factory, and RAGAS testset generator together. This is the path that produces the candidate golden set.
+
+The generator should use:
+
+- Document context: extracted text, serialized tables, OCR text, page/chunk provenance.
+- Knowledge graph context: entities and relationships from the folder/content-item graph.
+- Retrieval/source context: metadata proving which asset, page, chunk, or graph relationship produced the generated example.
 
 Recommended file: `app_retrieval/evaluation/golden_test_generator.py`
 
@@ -393,6 +483,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app_retrieval.evaluation.config.eval_config import load_eval_config
+from app_retrieval.evaluation.knowledge_graph_context import attach_knowledge_graph_context
 from app_retrieval.evaluation.langchain_document_loader import (
     dump_candidate_rows,
     load_langchain_documents,
@@ -410,6 +501,7 @@ def generate_golden_candidates(
     eval_config_path: Path,
     output_path: Path,
     size: int,
+    graph_data: dict | None = None,
 ) -> list[dict]:
     """Generate candidate golden-set rows from approved source documents."""
     config = load_eval_config(eval_config_path)
@@ -417,6 +509,7 @@ def generate_golden_candidates(
         raise ValueError("RAGAS evaluator must be enabled to generate golden candidates")
 
     documents = load_langchain_documents(source_docs_path)
+    documents = attach_knowledge_graph_context(documents, graph_data)
 
     # Use AzureChatOpenAI by default for RAGAS generation/judging and Azure
     # embeddings for document/testset embedding. Keep AzureOpenAI completion
@@ -446,6 +539,7 @@ uv run python -m app_retrieval.evaluation.golden_test_generator --source-docs ap
 Tests for this orchestration should mock:
 
 - `load_langchain_documents`
+- `attach_knowledge_graph_context`
 - `build_ragas_langchain_models`
 - `build_ragas_azure_completion_llm`
 - `generate_candidate_testset`
@@ -460,12 +554,14 @@ Use the RAGAS testset generator as the first draft of the golden set, not as an 
 The intended `NGAIP-362` workflow is:
 
 1. Load approved source documents into LangChain `Document` objects.
-2. Run the RAGAS testset generator.
-3. Save the output to `candidate_testset.jsonl`.
-4. Human-review each candidate row.
-5. Promote only `approved` or `edited` rows into `gold.jsonl`.
-6. Validate `gold.jsonl` with the Pydantic `GoldRow` schema.
-7. Use the validated `gold.jsonl` as the official golden set for `NGAIP-363`, `NGAIP-365`, `NGAIP-364`, and `NGAIP-366`.
+2. Load knowledge graph nodes/links for the same approved source documents.
+3. Attach serialized knowledge graph context to the generation documents.
+4. Run the RAGAS testset generator.
+5. Save the output to `candidate_testset.jsonl`.
+6. Human-review each candidate row, including document and graph provenance.
+7. Promote only `approved` or `edited` rows into `gold.jsonl`.
+8. Validate `gold.jsonl` with the Pydantic `GoldRow` schema.
+9. Use the validated `gold.jsonl` as the official golden set for `NGAIP-363`, `NGAIP-365`, `NGAIP-364`, and `NGAIP-366`.
 
 Recommended file owned by `NGAIP-362`: `app_retrieval/evaluation/gold_promoter.py`
 
@@ -528,6 +624,7 @@ uv run pytest tests/app_retrieval/test_gold_loader.py tests/app_retrieval/test_g
 Golden set acceptance rules:
 
 - Every generated row must retain source provenance.
+- Every generated row that used graph context must retain graph provenance.
 - Every promoted row must pass `GoldRow` validation.
 - Generated answers must be reviewed against the source document before promotion.
 - Rejected candidates must remain outside `gold.jsonl`.
@@ -1092,12 +1189,14 @@ Implementation checklist:
 - Add redacted CI fixture such as `ci_gold.jsonl`.
 - Add `app_retrieval/evaluation/gold_loader.py`.
 - Add `app_retrieval/evaluation/langchain_document_loader.py`.
+- Add `app_retrieval/evaluation/knowledge_graph_context.py`.
 - Add a RAGAS testset-generator wrapper for producing candidate rows from approved source documents.
-- Add `app_retrieval/evaluation/golden_test_generator.py` to orchestrate document loading, Azure OpenAI model creation, RAGAS testset generation, and candidate export.
+- Add `app_retrieval/evaluation/golden_test_generator.py` to orchestrate document loading, knowledge graph context, Azure OpenAI model creation, RAGAS testset generation, and candidate export.
 - Add `app_retrieval/evaluation/gold_promoter.py` to convert reviewed RAGAS candidates into official gold rows.
 - Add an intermediate candidate schema/document explaining review status and provenance fields.
 - Add tests for valid rows, missing fields, invalid JSON, extra fields, and optional spans/chunk ids.
 - Add tests for LangChain `Document` loading and provenance preservation.
+- Add tests for knowledge graph context serialization and attachment to LangChain `Document` objects.
 - Add tests for converting mocked RAGAS-generated examples into candidate rows.
 - Add tests for golden test generator orchestration with all live model/RAGAS calls mocked.
 - Add tests for promoting only approved/edited candidates into the official golden set.
@@ -1359,6 +1458,7 @@ Every per-question score should include fields from 415, even if some are `null`
 - Confirm `uv run pytest --version`.
 - Implement 362 data contract with Pydantic validation.
 - Implement 362 LangChain `Document` loader for approved source documents.
+- Implement 362 knowledge graph context serialization and attach it to generator documents.
 - Add RAGAS testset generation for candidate QA/reference rows and require human review before promotion to gold.
 - Implement 363 harness, evaluator config parser, RAGAS/LangChain factory, and RAGAS adapter layer.
 - Implement 415 metric/report contract, including evaluator and testset provenance fields.
@@ -1383,6 +1483,7 @@ Recommended split:
 
 - Pydantic validates `GoldRow`.
 - RAGAS testset generator creates candidate examples from approved documents.
+- Knowledge graph context enriches candidate generation so the golden set covers entities, relationships, tables, and multi-hop source facts.
 - Human review promotes accepted generated examples into the official gold dataset.
 - The harness converts `GoldRow` into RAGAS examples.
 - RAGAS scores context relevance, faithfulness, answer correctness, and answer relevancy.
