@@ -134,6 +134,12 @@ uv run python -c "from langchain_core.documents import Document; import ragas; p
 uv run pytest tests/app_retrieval -v
 ```
 
+Settings import convention for generated backend code:
+
+- Use `from app.settings_intellisense import settings` when code needs Django settings and should match the existing PrattWise backend pattern.
+- The module name is `settings_intellisense` with double `ll`.
+- Avoid introducing new `from django.conf import settings` imports in the generated evaluation package unless the surrounding file already uses that style.
+
 The backend already has `pytest.ini` with:
 
 ```ini
@@ -457,6 +463,7 @@ from __future__ import annotations
 
 import os
 
+from app.settings_intellisense import settings
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 
 from app_retrieval.evaluation.config.eval_config import RagasEvaluatorConfig
@@ -473,18 +480,18 @@ def build_ragas_langchain_models(config: RagasEvaluatorConfig):
 
     llm = AzureChatOpenAI(
         azure_deployment=config.model,
-        api_key=os.environ["AZURE_OPENAI_API_KEY"],
-        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-        api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
+        api_key=getattr(settings, "AZURE_OPENAI_API_KEY", os.environ.get("AZURE_OPENAI_API_KEY")),
+        azure_endpoint=getattr(settings, "AZURE_OPENAI_ENDPOINT", os.environ.get("AZURE_OPENAI_ENDPOINT")),
+        api_version=getattr(settings, "AZURE_OPENAI_API_VERSION", os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")),
         temperature=config.temperature,
         timeout=config.timeout_seconds,
         max_retries=config.max_retries,
     )
     embeddings = AzureOpenAIEmbeddings(
         azure_deployment=config.embeddings,
-        api_key=os.environ["AZURE_OPENAI_API_KEY"],
-        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-        api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
+        api_key=getattr(settings, "AZURE_OPENAI_API_KEY", os.environ.get("AZURE_OPENAI_API_KEY")),
+        azure_endpoint=getattr(settings, "AZURE_OPENAI_ENDPOINT", os.environ.get("AZURE_OPENAI_ENDPOINT")),
+        api_version=getattr(settings, "AZURE_OPENAI_API_VERSION", os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")),
     )
     return llm, embeddings
 ```
