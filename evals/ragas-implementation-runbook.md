@@ -19,6 +19,7 @@ Use the `ragas` library as the primary evaluator framework for semantic RAG qual
 - Context relevance should use RAGAS context metrics.
 - Grounding should use RAGAS faithfulness/grounding metrics.
 - Response quality should use RAGAS answer correctness and answer relevancy metrics.
+- Testset creation should use the RAGAS testset generator to produce candidate questions, answers, and references from approved source documents.
 
 Keep deterministic PrattWise-specific checks where RAGAS does not know enough about backend metadata:
 
@@ -137,6 +138,64 @@ DJANGO_SETTINGS_MODULE = app.settings
 
 Normal Django tests do not require `python manage.py runserver`. Start the server only for true HTTP end-to-end tests that call `localhost`.
 
+## RAGAS Testset Generator
+
+Use the RAGAS testset generator to create candidate evaluation examples from approved PrattWise/Samba source documents.
+
+Important rule:
+
+- RAGAS-generated examples are not automatically gold data.
+- They are candidate QA/reference rows.
+- A human reviewer should approve, edit, or reject them before they become part of the `NGAIP-362` gold dataset.
+
+Recommended flow:
+
+1. Select a small approved document corpus.
+2. Convert each source document into the document format required by the installed RAGAS version.
+3. Run the RAGAS testset generator to create candidate questions, reference answers, and supporting contexts.
+4. Export generated examples to an intermediate file such as `candidate_testset.jsonl`.
+5. Review candidates manually for correctness, controlled-data suitability, source traceability, and answerability.
+6. Promote approved rows into the `NGAIP-362` gold schema.
+7. Keep generated-but-unapproved rows out of the official gold set.
+
+Suggested files:
+
+```text
+app_retrieval/evaluation/testset_generator.py
+app_retrieval/evaluation/config/candidate_testset.schema.md
+tests/app_retrieval/test_testset_generator.py
+```
+
+The generator wrapper should isolate RAGAS API details because RAGAS testset APIs can change between versions. Keep the rest of the harness dependent on a stable PrattWise function, for example:
+
+```python
+def generate_candidate_testset(source_docs: list[dict], *, size: int) -> list[dict]:
+    ...
+```
+
+Each candidate row should preserve enough provenance to support human review and later citation scoring:
+
+- Source document id or `asset_id`.
+- Source title/path if allowed.
+- Source span, page, section, or chunk id where possible.
+- Generated question.
+- Generated reference answer.
+- Generated supporting context.
+- Generator model/deployment metadata.
+- RAGAS version.
+- Review status: `candidate`, `approved`, `rejected`, or `edited`.
+
+The approved output should still pass through the Pydantic `GoldRow` validation from `NGAIP-362`. That keeps the final gold file stable even if RAGAS changes its generated-object format.
+
+Recommended commands:
+
+```cmd
+uv run python -m app_retrieval.evaluation.testset_generator --input approved_docs.jsonl --output candidate_testset.jsonl --size 25
+uv run pytest tests/app_retrieval/test_testset_generator.py -v
+```
+
+Use live evaluator/generator credentials only for manual or gated smoke runs. Structural tests should mock the RAGAS generator and validate conversion/export behavior without calling a model.
+
 ## RAGAS Configuration
 
 Add an evaluator section to the RAG evaluation config so live model calls are explicit and reproducible:
@@ -250,7 +309,10 @@ Implementation checklist:
 - Add `app_retrieval/evaluation/config/gold_schema.md`.
 - Add redacted CI fixture such as `ci_gold.jsonl`.
 - Add `app_retrieval/evaluation/gold_loader.py`.
+- Add a RAGAS testset-generator wrapper for producing candidate rows from approved source documents.
+- Add an intermediate candidate schema/document explaining review status and provenance fields.
 - Add tests for valid rows, missing fields, invalid JSON, extra fields, and optional spans/chunk ids.
+- Add tests for converting mocked RAGAS-generated examples into candidate rows.
 
 Use Pydantic here.
 
@@ -260,10 +322,13 @@ Justification:
 - Pydantic is appropriate for validating gold rows before they are passed into RAGAS.
 - The backend already includes `pydantic==2.9.2` in `requirements.txt` and uses Pydantic in existing backend code.
 - RAGAS still needs clean structured input, and Pydantic helps guarantee that input.
+- The RAGAS testset generator helps draft candidate examples, but human review and Pydantic validation decide what becomes official gold data.
 
 RAGAS relationship:
 
 - Do not replace the 362 schema with RAGAS.
+- Use RAGAS testset generation to produce candidate rows from approved source documents.
+- Preserve provenance so generated candidates can be traced back to source docs/chunks.
 - Convert validated `GoldRow` objects into RAGAS dataset rows later in the harness.
 - Required RAGAS fields usually include question/user input, retrieved contexts, generated answer, and reference/ground-truth answer.
 
@@ -498,6 +563,7 @@ Every per-question score should include fields from 415, even if some are `null`
 - Add dependencies through `uv add`, then run `uv sync --group dev`.
 - Confirm `uv run pytest --version`.
 - Implement 362 data contract with Pydantic validation.
+- Add RAGAS testset generation for candidate QA/reference rows and require human review before promotion to gold.
 - Implement 363 harness and RAGAS adapter layer.
 - Implement 415 metric/report contract.
 - Implement 365 RAGAS context metrics and token-overlap diagnostic.
@@ -520,6 +586,8 @@ The backend already has Pydantic in `requirements.txt`, and some backend code al
 Recommended split:
 
 - Pydantic validates `GoldRow`.
+- RAGAS testset generator creates candidate examples from approved documents.
+- Human review promotes accepted generated examples into the official gold dataset.
 - The harness converts `GoldRow` into RAGAS examples.
 - RAGAS scores context relevance, faithfulness, answer correctness, and answer relevancy.
 - Deterministic PrattWise code scores source metadata and cheap diagnostics.
