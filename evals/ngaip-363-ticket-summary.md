@@ -116,7 +116,7 @@ Live RAGAS/model tests should be opt-in and skipped unless credentials and appro
 
 ## Branching and Commit Behavior
 
-The runtime implementation should branch from the shared `ragas-rag-evaluation` parent. The transfer script still supports repeatable local use by bootstrapping from local `main-backup-for-mac-claude-repo-04-07-2026`, switching or creating `ngaip-363-rag-evaluation-harness`, applying files, removing obsolete split harness files, force-adding generated tests with `git add -f`, and committing locally without pushing.
+The runtime implementation should branch from the shared `ragas-rag-evaluation` parent. The transfer script still supports repeatable local use by bootstrapping from `main`, switching or creating `ngaip-363-rag-evaluation-harness`, applying files, removing obsolete split harness files, force-adding generated tests with `git add -f`, and committing locally without pushing.
 ## RAGAS-Primary Update
 
 `NGAIP-363` now owns `ragas_adapter.py`, conversion into RAGAS dataset records, construction of RAGAS metric objects, and the default `ragas.evaluate()` call. `harness.py` treats deterministic citation/source checks as report supplements, not replacement metrics.
@@ -147,7 +147,7 @@ This structure lets `NGAIP-364`, `365`, and `366` plug into a common RAGAS-first
 
 ## Runtime Setup and Test Playbook
 
-Run from the backend repository root on the runtime machine, where `manage.py` lives. The transfer script creates or switches to `ngaip-363-rag-evaluation-harness` from the local-only base branch `main-backup-for-mac-claude-repo-04-07-2026`.
+Run from the backend repository root on the runtime machine, where `manage.py` lives. The transfer script creates or switches to `ngaip-363-rag-evaluation-harness` from base branch `main`.
 
 ```cmd
 cd C:\path\to\ENCHS-PW-GenAI-Backend

@@ -66,7 +66,7 @@ These tests prove the diagnostic scorer and report shape. They do not prove prod
 
 ## Branching and Commit Behavior
 
-The runtime implementation should preserve `NGAIP-412` as a completed design/POC branch. The transfer script still supports local repeatable use by bootstrapping from local `main-backup-for-mac-claude-repo-04-07-2026`, switching or creating the ticket branch, applying files, and committing locally without pushing.
+The runtime implementation should preserve `NGAIP-412` as a completed design/POC branch. The transfer script still supports local repeatable use by bootstrapping from `main`, switching or creating the ticket branch, applying files, and committing locally without pushing.
 
 ## Reasoning, Choices, and Code Breakdown
 

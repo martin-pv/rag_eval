@@ -6,9 +6,9 @@ This runbook describes how to implement the NGAIP RAG evaluation tickets on the 
 
 The intended branch model is:
 
-- One parent integration branch for the whole RAGAS evaluation effort.
-- One sub-branch per NGAIP ticket.
-- Each ticket branch should be created locally from the RAGAS parent branch, not directly from `main`, after the parent branch has been created from the local backend backup branch.
+- Base branch for every transfer script and ticket branch is `main`.
+- One branch per NGAIP ticket, created locally from `main`.
+- If the team also keeps a `ragas-rag-evaluation` integration branch, create it from `main` and merge ticket branches into it after review; do not use it as the transfer-script base branch.
 
 The transfer scripts in this repository are still useful as repeatable generators, but the actual runtime machine should use Git branches and commits to preserve each ticket as reviewable work.
 
@@ -74,17 +74,19 @@ RAGAS does not replace every backend-specific check. PrattWise still needs deter
 
 ## Branch Strategy
 
-### Parent Branch
+### Ticket Branches
 
-Create one parent branch for all RAGAS evaluation work:
+Create every NGAIP ticket branch from `main`:
 
 ```cmd
 cd path\to\Pratt-Backend\backend
-git switch main-backup-for-mac-claude-repo-04-07-2026
-git switch -c ragas-rag-evaluation
+git switch main
+git switch -c ngaip-362-corpus-gold-dataset
 ```
 
-This branch should contain shared setup that every ticket needs:
+Each transfer script also uses `BASE_BRANCH = "main"`, then creates or switches to its ticket branch, applies files, runs/stages tests where present, and commits locally without pushing.
+
+Shared setup still belongs in the earliest relevant ticket branches:
 
 - Dependency setup for `ragas`, `datasets`, `pytest`, `pytest-django`, and `pytest-asyncio`.
 - Shared evaluation package directories.
@@ -92,30 +94,19 @@ This branch should contain shared setup that every ticket needs:
 - Shared report metadata fields.
 - Shared test fixtures.
 
-Commit the parent setup locally:
-
-```cmd
-git add pyproject.toml uv.lock requirements.txt pytest.ini app_retrieval tests
-git commit -m "NGAIP: Add RAGAS evaluation foundation"
-```
-
-Do not publish unless the team explicitly wants this branch on GitHub.
-
-### Ticket Branches
-
-Create sub-branches from the parent branch:
-
-```cmd
-git switch ragas-rag-evaluation
-git switch -c ngaip-362-corpus-gold-dataset
-```
-
 After finishing a ticket:
 
 ```cmd
 git add app_retrieval tests
+git add -f tests/app_retrieval/<generated-test-file>.py
 git commit -m "NGAIP-362: Add gold dataset schema and fixtures"
-git switch ragas-rag-evaluation
+```
+
+If the team wants one combined integration branch for review, create it from `main` and merge completed ticket branches into it after their local commits:
+
+```cmd
+git switch main
+git switch -c ragas-rag-evaluation
 git merge --no-ff ngaip-362-corpus-gold-dataset
 ```
 
@@ -1537,7 +1528,7 @@ Every per-question score should include fields from 415, even if some are `null`
 
 ## Final Implementation Checklist
 
-- Create `ragas-rag-evaluation` from `main-backup-for-mac-claude-repo-04-07-2026`.
+- Create `ragas-rag-evaluation` from `main` only if the team wants an integration branch.
 - Add dependencies through `uv add`, then run `uv sync --group dev`.
 - Confirm `uv run pytest --version`.
 - Implement 362 data contract with Pydantic validation.

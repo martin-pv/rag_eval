@@ -90,7 +90,7 @@ Live RAGAS tests should be opt-in and require Azure OpenAI credentials.
 
 ## Branching and Commit Behavior
 
-The runtime implementation should branch from `ragas-rag-evaluation` after `NGAIP-362`, `NGAIP-363`, and `NGAIP-415` are available. The transfer script still supports local repeatable use by bootstrapping from local `main-backup-for-mac-claude-repo-04-07-2026`, switching or creating `ngaip-366-response-accuracy-metric`, applying files, and committing locally without pushing.
+The runtime implementation should branch from `main`; apply prerequisite shared tickets first if this branch needs their files. The transfer script still supports local repeatable use by bootstrapping from `main`, switching or creating `ngaip-366-response-accuracy-metric`, applying files, and committing locally without pushing.
 ## RAGAS-Primary Update
 
 `NGAIP-366` should use RAGAS answer correctness, answer/response relevancy, and faithfulness as the primary response accuracy metrics. Human annotation remains a calibration and adjudication path, not the default evaluator.
@@ -116,7 +116,7 @@ This keeps automated response evaluation repeatable while leaving threshold poli
 
 ## Runtime Setup and Test Playbook
 
-Run from the backend repository root after `NGAIP-362`, `NGAIP-363`, and `NGAIP-415` have been applied. The transfer script creates or switches to `ngaip-366-response-accuracy-metric` from the local-only base branch.
+Run from the backend repository root after `NGAIP-362`, `NGAIP-363`, and `NGAIP-415` have been applied. The transfer script creates or switches to `ngaip-366-response-accuracy-metric` from base branch `main`.
 
 ```cmd
 cd C:\path\to\ENCHS-PW-GenAI-Backend

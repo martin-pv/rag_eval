@@ -102,7 +102,7 @@ These tests validate the contract, not metric correctness. Metric correctness be
 
 ## Branching and Commit Behavior
 
-The runtime implementation should branch from the shared `ragas-rag-evaluation` parent after `NGAIP-362` and `NGAIP-363` are in place. The transfer script still supports repeatable local use by bootstrapping from local `main-backup-for-mac-claude-repo-04-07-2026`, switching or creating `ngaip-415-metrics-success-criteria`, applying files, and committing locally without pushing.
+The runtime implementation should branch from `main`; apply prerequisite shared tickets first if this branch needs their files. The transfer script still supports repeatable local use by bootstrapping from `main`, switching or creating `ngaip-415-metrics-success-criteria`, applying files, and committing locally without pushing.
 ## RAGAS-Primary Update
 
 `NGAIP-415` success criteria should describe RAGAS metrics as the primary contract for retrieval, citation grounding, and response quality. Deterministic PrattWise checks are retained as supplemental diagnostics for metadata/source integrity and CI triage.
@@ -128,7 +128,7 @@ This ticket is where reviewers should look to understand what “passing RAG eva
 
 ## Runtime Setup and Test Playbook
 
-Run from the backend repository root after `NGAIP-362` and `NGAIP-363` have established the gold data and harness shape. The transfer script creates or switches to `ngaip-415-metrics-success-criteria` from the local-only base branch.
+Run from the backend repository root after `NGAIP-362` and `NGAIP-363` have established the gold data and harness shape. The transfer script creates or switches to `ngaip-415-metrics-success-criteria` from base branch `main`.
 
 ```cmd
 cd C:\path\to\ENCHS-PW-GenAI-Backend

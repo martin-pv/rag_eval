@@ -5,7 +5,7 @@ from pathlib import Path
 
 BRANCH = 'ngaip-363-rag-evaluation-harness'
 COMMIT_MESSAGE = 'NGAIP-363: Apply transfer script changes'
-BASE_BRANCH = "main-backup-for-mac-claude-repo-04-07-2026"
+BASE_BRANCH = "main"
 BACKEND = Path.cwd()
 
 

@@ -90,7 +90,7 @@ The generated `sample_gold.jsonl` is a sanitized five-row fixture for testing sc
 
 ## Branching and Commit Behavior
 
-The runtime implementation should start from the parent `ragas-rag-evaluation` branch when available. The transfer script still bootstraps from local `main-backup-for-mac-claude-repo-04-07-2026` for repeatable transfer use, creates or switches to `ngaip-362-corpus-gold-dataset`, writes generated files, and makes a local commit without pushing.
+The runtime implementation should start from `main`. The transfer script still bootstraps from `main` for repeatable transfer use, creates or switches to `ngaip-362-corpus-gold-dataset`, writes generated files, and makes a local commit without pushing.
 ## RAGAS-Primary Update
 
 `NGAIP-362` now treats RAGAS `TestsetGenerator` as the primary way to bootstrap candidate gold rows. Pydantic remains only for schema validation and promotion safety. Generated rows use RAGAS-native fields (`user_input`, `reference`, `retrieved_contexts`) plus PrattWise source metadata.
@@ -118,7 +118,7 @@ This breakdown keeps `NGAIP-362` focused on corpus and gold-set ownership while 
 
 ## Runtime Setup and Test Playbook
 
-Run from the backend repository root on the runtime machine, where `manage.py` lives. The transfer script creates or switches to `ngaip-362-corpus-gold-dataset` from the local-only base branch `main-backup-for-mac-claude-repo-04-07-2026`.
+Run from the backend repository root on the runtime machine, where `manage.py` lives. The transfer script creates or switches to `ngaip-362-corpus-gold-dataset` from base branch `main`.
 
 ```cmd
 cd C:\path\to\ENCHS-PW-GenAI-Backend

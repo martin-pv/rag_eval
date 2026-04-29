@@ -5,7 +5,7 @@ from pathlib import Path
 
 BRANCH = 'ngaip-364-citation-accuracy-metric'
 COMMIT_MESSAGE = "NGAIP-364: Apply transfer script changes"
-BASE_BRANCH = "main-backup-for-mac-claude-repo-04-07-2026"
+BASE_BRANCH = "main"
 BACKEND = Path.cwd()
 GENERATED_PATHS = ["app_retrieval/evaluation/metrics/__init__.py", "app_retrieval/evaluation/metrics/citation_accuracy.py", "tests/app_retrieval/__init__.py", "tests/app_retrieval/test_metric_citation_accuracy.py"]
 OBSOLETE_PATHS = []

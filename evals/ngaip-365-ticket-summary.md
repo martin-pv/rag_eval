@@ -83,7 +83,7 @@ Live RAGAS tests should be opt-in and require Azure OpenAI credentials.
 
 ## Branching and Commit Behavior
 
-The runtime implementation should branch from `ragas-rag-evaluation` after `NGAIP-362`, `NGAIP-363`, and `NGAIP-415` are available. The transfer script still supports local repeatable use by bootstrapping from local `main-backup-for-mac-claude-repo-04-07-2026`, switching or creating `ngaip-365-context-relevancy-metric`, applying files, and committing locally without pushing.
+The runtime implementation should branch from `main`; apply prerequisite shared tickets first if this branch needs their files. The transfer script still supports local repeatable use by bootstrapping from `main`, switching or creating `ngaip-365-context-relevancy-metric`, applying files, and committing locally without pushing.
 ## RAGAS-Primary Update
 
 `NGAIP-365` should use RAGAS context precision/recall/relevancy metrics as the primary context relevancy signal. Token overlap remains useful for fast CI diagnostics and threshold calibration, but it is no longer the main metric.
@@ -109,7 +109,7 @@ This choice aligns the metric with the user-visible RAG experience: the question
 
 ## Runtime Setup and Test Playbook
 
-Run from the backend repository root after `NGAIP-362`, `NGAIP-363`, and `NGAIP-415` have been applied. The transfer script creates or switches to `ngaip-365-context-relevancy-metric` from the local-only base branch.
+Run from the backend repository root after `NGAIP-362`, `NGAIP-363`, and `NGAIP-415` have been applied. The transfer script creates or switches to `ngaip-365-context-relevancy-metric` from base branch `main`.
 
 ```cmd
 cd C:\path\to\ENCHS-PW-GenAI-Backend

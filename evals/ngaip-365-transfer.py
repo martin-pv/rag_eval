@@ -5,7 +5,7 @@ from pathlib import Path
 
 BRANCH = 'ngaip-365-context-relevancy-metric'
 COMMIT_MESSAGE = "NGAIP-365: Apply transfer script changes"
-BASE_BRANCH = "main-backup-for-mac-claude-repo-04-07-2026"
+BASE_BRANCH = "main"
 BACKEND = Path.cwd()
 GENERATED_PATHS = ["app_retrieval/evaluation/metrics/__init__.py", "app_retrieval/evaluation/metrics/context_relevancy.py", "tests/app_retrieval/__init__.py", "tests/app_retrieval/test_metric_context_relevancy.py"]
 OBSOLETE_PATHS = []

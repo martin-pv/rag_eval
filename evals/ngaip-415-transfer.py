@@ -16,7 +16,7 @@ from pathlib import Path
 
 BRANCH = "ngaip-415-metrics-success-criteria"
 COMMIT_MESSAGE = "NGAIP-415: Apply transfer script changes"
-BASE_BRANCH = "main-backup-for-mac-claude-repo-04-07-2026"
+BASE_BRANCH = "main"
 BACKEND = Path.cwd()
 
 
