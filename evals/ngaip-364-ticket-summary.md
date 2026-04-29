@@ -79,3 +79,55 @@ The runtime implementation should branch from `ragas-rag-evaluation` after `NGAI
 ## RAGAS-Primary Update
 
 `NGAIP-364` should configure citation accuracy through the shared RAGAS adapter using faithfulness/context metrics first. Asset-id precision, recall, and hallucination checks remain deterministic PrattWise supplements in the harness report.
+
+## Reasoning, Choices, and Code Breakdown
+
+The main design choice is to split citation quality into two layers. RAGAS faithfulness/context metrics judge whether the answer is supported by retrieved text, while PrattWise deterministic checks verify source identity, asset IDs, chunks, spans, and hallucinated citation metadata.
+
+Rejected alternatives:
+
+- RAGAS-only citation scoring: RAGAS cannot know whether a PrattWise `asset_id`, page, chunk, or citation index is correct.
+- Deterministic-only citation scoring: exact source matching misses whether the answer is actually grounded in the cited text.
+- Treating missing metadata as passing: would hide citation regressions in source-bearing chat responses.
+
+Code/file breakdown:
+
+- `metrics/citation_accuracy.py`: thin metric module that delegates semantic grounding to the shared RAGAS adapter and computes/exports citation metadata supplements.
+- `tests/test_citation_accuracy.py`: covers exact source matches, wrong sources, missing citations, hallucinated citations, and optional chunk/span overlap.
+- `ragas_adapter.py` from `NGAIP-363`: supplies faithfulness/context metrics that this ticket consumes.
+- `metrics_spec.yaml` from `NGAIP-415`: defines how citation metrics and supplements appear in reports.
+
+This approach makes citation accuracy explainable: RAGAS answers “is the answer grounded?” and PrattWise checks answer “did we cite the right backend source?”
+
+## Runtime Setup and Test Playbook
+
+Run from the backend repository root after `NGAIP-362`, `NGAIP-363`, and `NGAIP-415` have been applied. The transfer script creates or switches to `ngaip-364-citation-accuracy-metric` from the local-only base branch.
+
+```cmd
+cd C:\path\to\ENCHS-PW-GenAI-Backend
+py -3 C:\path\to\rag_eval\evals\ngaip-364-transfer.py
+uv sync --group dev
+```
+
+Run the CI-safe metric tests first:
+
+```cmd
+uv run pytest tests/app_retrieval/test_citation_accuracy.py -v
+uv run pytest tests/app_retrieval/test_eval_harness.py -v
+```
+
+Then run a sample harness pass if `eval_sample.yaml` exists:
+
+```cmd
+uv run python manage.py rag_eval run --config app_retrieval/evaluation/config/eval_sample.yaml
+```
+
+Manual staging must force-add generated tests because `tests/` may be ignored in the reconstructed/runtime repo:
+
+```cmd
+git add app_retrieval/evaluation/metrics/citation_accuracy.py
+git add -f tests/app_retrieval/test_citation_accuracy.py
+git commit -m "NGAIP-364: Apply transfer script changes"
+```
+
+Do not treat live RAGAS citation/faithfulness scores as final pass/fail until `NGAIP-415` thresholds are calibrated. Deterministic source-id checks should still be visible in the report as PrattWise supplements.

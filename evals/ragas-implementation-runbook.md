@@ -582,6 +582,13 @@ Recommended command shape:
 uv run python -m app_retrieval.evaluation.golden_test_generator --source-docs approved_docs.jsonl --config app_retrieval/evaluation/config/rag_eval.yaml --output candidate_testset.jsonl --size 50
 ```
 
+For early testing before an approved corpus exists, the transfer scripts generate a sanitized sample golden set at `app_retrieval/evaluation/config/sample_gold.jsonl` and a matching config at `app_retrieval/evaluation/config/eval_sample.yaml`. Use it to validate schema loading, RAGAS row conversion, report output, and mocked retriever behavior. Do not treat it as acceptance evidence for production RAG quality.
+
+```cmd
+uv run pytest tests/app_retrieval/test_gold_dataset_generation.py -v
+uv run python manage.py rag_eval run --config app_retrieval/evaluation/config/eval_sample.yaml
+```
+
 Tests for this orchestration should mock:
 
 - `load_langchain_documents`

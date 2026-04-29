@@ -209,12 +209,16 @@ def step_create_test():
     print(f"[OK] created {dest.relative_to(BACKEND)}")
 
 
+
+def step_run_pytest():
+    """Run generated ZH-64 watchdog tests before committing."""
+    subprocess.run([sys.executable, "-m", "pytest", "tests/app_retrieval/test_stuck_processing.py", "-v"], check=True)
+
+
 def step_commit():
     """Stage and commit the changes."""
-    git("add",
-        str(BACKEND / "app_background" / "tasks" / "stuck_processing_watchdog.py"),
-        str(BACKEND / "tests" / "app_retrieval" / "test_stuck_processing.py"),
-    )
+    git("add", str(BACKEND / "app_background" / "tasks" / "stuck_processing_watchdog.py"))
+    git("add", "-f", str(BACKEND / "tests" / "app_retrieval" / "test_stuck_processing.py"))
     git("commit", "-m",
         "ZH-64: add stuck-processing watchdog Celery task + ORM query tests")
     print("[OK] committed")
@@ -243,6 +247,7 @@ def main():
     step_branch()
     step_create_watchdog()
     step_create_test()
+    step_run_pytest()
     step_commit()
     print("\n[DONE] ZH-64 transfer complete.")
     print("  Next steps:")

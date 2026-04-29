@@ -191,12 +191,16 @@ def step_patch_settings():
         )
 
 
+
+def step_run_pytest():
+    """Run generated ZH-63 CORS tests before committing."""
+    subprocess.run([sys.executable, "-m", "pytest", "tests/test_cors.py", "-v"], check=True)
+
+
 def step_commit():
     """Stage and commit the changes."""
-    git("add",
-        str(BACKEND / "app" / "settings.py"),
-        str(BACKEND / "tests" / "test_cors.py"),
-    )
+    git("add", str(BACKEND / "app" / "settings.py"))
+    git("add", "-f", str(BACKEND / "tests" / "test_cors.py"))
     git("commit", "-m", "ZH-63: add AutoSAM CORS origin to settings + CORS regression tests")
     print("[OK] committed")
 
@@ -222,6 +226,7 @@ def main():
     step_branch()
     step_create_test()
     step_patch_settings()
+    step_run_pytest()
     step_commit()
     print("\n[DONE] ZH-63 transfer complete.")
     print("  Next: run pytest tests/test_cors.py on runtime machine, then open PR.")

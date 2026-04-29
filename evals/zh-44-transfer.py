@@ -281,6 +281,19 @@ class TestUserChatResponseSourcesPersisted:
     print(f"[ZH-44] Written: {test_file}")
 
 
+
+def run_pytest():
+    """Run the generated ZH-44 pytest file before staging."""
+    subprocess.run([sys.executable, "-m", "pytest", "tests/app_chatbot/test_chatstream_sources.py", "-v"], check=True)
+
+
+def stage_changes():
+    """Stage source changes and force-add generated tests."""
+    git("add", str(TARGET))
+    git("add", "-f", str(TESTS_DIR / "test_chatstream_sources.py"))
+    print("[ZH-44] Staged chatstream.py and force-added generated tests")
+
+
 def main():
     print(f"[ZH-44] Switching to branch {BRANCH}...")
     git("checkout", "main")
@@ -290,6 +303,8 @@ def main():
 
     patch_chatstream()
     write_test_file()
+    run_pytest()
+    stage_changes()
 
     print()
     print("[ZH-44] Done. Verify with:")

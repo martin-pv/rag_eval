@@ -258,6 +258,19 @@ class TestHybridIntegration:
     print(f"[ZH-62] Wrote: {TEST_FILE}")
 
 
+
+def run_pytest():
+    """Run generated ZH-62 unit tests before staging."""
+    subprocess.run([sys.executable, "-m", "pytest", "tests/app_retrieval/test_hybrid_search.py", "-v", "-m", "not integration"], check=True)
+
+
+def stage_changes():
+    """Stage source changes and force-add generated tests."""
+    git("add", str(SEARCH_PY), str(VIEWS_SEARCH_PY))
+    git("add", "-f", str(TEST_FILE))
+    print("[ZH-62] Staged search files and force-added generated tests")
+
+
 def main():
     print("[ZH-62] Starting transfer...")
 
@@ -269,6 +282,8 @@ def main():
     patch_search_py()
     patch_views_search_py()
     write_test_file()
+    run_pytest()
+    stage_changes()
 
     print()
     print("[ZH-62] Done.")

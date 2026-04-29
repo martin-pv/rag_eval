@@ -94,3 +94,55 @@ The runtime implementation should branch from `ragas-rag-evaluation` after `NGAI
 ## RAGAS-Primary Update
 
 `NGAIP-366` should use RAGAS answer correctness, answer/response relevancy, and faithfulness as the primary response accuracy metrics. Human annotation remains a calibration and adjudication path, not the default evaluator.
+
+## Reasoning, Choices, and Code Breakdown
+
+The main design choice is to use RAGAS answer correctness, answer relevancy, and faithfulness as the automated response-quality path, while preserving human calibration for thresholds. Automated judges are useful for repeatability, but stakeholder sign-off is still needed before scores become release gates.
+
+Rejected alternatives:
+
+- Exact-match answer scoring: too brittle for natural-language answers with equivalent phrasing.
+- Human review only: high quality but not repeatable enough for regular regression testing.
+- RAGAS scores without calibration: risky because judge strictness and domain expectations need to be validated on the approved corpus.
+
+Code/file breakdown:
+
+- `metrics/response_accuracy.py`: thin metric module that delegates answer correctness/relevancy/faithfulness to the shared RAGAS adapter.
+- `tests/test_response_accuracy.py`: covers correct, irrelevant, and poorly grounded answers with mocked RAGAS responses.
+- Optional annotation export: reviewer-facing rows containing question, model answer, gold answer, contexts, RAGAS scores, and human labels.
+- `eval_report.schema.json` from `NGAIP-415`: defines how response scores and evaluator metadata are reported.
+
+This keeps automated response evaluation repeatable while leaving threshold policy and final acceptance criteria to calibrated stakeholder review.
+
+## Runtime Setup and Test Playbook
+
+Run from the backend repository root after `NGAIP-362`, `NGAIP-363`, and `NGAIP-415` have been applied. The transfer script creates or switches to `ngaip-366-response-accuracy-metric` from the local-only base branch.
+
+```cmd
+cd C:\path\to\ENCHS-PW-GenAI-Backend
+py -3 C:\path\to\rag_eval\evals\ngaip-366-transfer.py
+uv sync --group dev
+```
+
+Run CI-safe tests first. These should mock RAGAS/model calls and verify answer/reference/context conversion plus report metadata:
+
+```cmd
+uv run pytest tests/app_retrieval/test_response_accuracy.py -v
+uv run pytest tests/app_retrieval/test_eval_harness.py -v
+```
+
+Use the sample golden set for a local harness run once the evaluator and retriever path are available:
+
+```cmd
+uv run python manage.py rag_eval run --config app_retrieval/evaluation/config/eval_sample.yaml
+```
+
+Live RAGAS answer correctness/relevancy needs evaluator credentials. Human calibration exports, if implemented in this ticket, should be reviewed before any threshold is used as a release gate.
+
+Manual staging must force-add generated tests:
+
+```cmd
+git add app_retrieval/evaluation/metrics/response_accuracy.py
+git add -f tests/app_retrieval/test_response_accuracy.py
+git commit -m "NGAIP-366: Apply transfer script changes"
+```

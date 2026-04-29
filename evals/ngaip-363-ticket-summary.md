@@ -17,6 +17,7 @@ RAGAS is the primary semantic evaluator framework, while the harness keeps Pratt
 - `app_retrieval/evaluation/config/__init__.py`
 - `app_retrieval/evaluation/config/eval_config.py`
 - `app_retrieval/evaluation/config/rag_eval.yaml`
+- `app_retrieval/evaluation/config/eval_sample.yaml`
 - `app_retrieval/evaluation/ragas_factory.py`
 - `app_retrieval/evaluation/harness.py`
 - `app_retrieval/management/commands/rag_eval.py`
@@ -86,6 +87,12 @@ The management command should support a flow like:
 uv run python manage.py rag_eval run --config app_retrieval/evaluation/config/rag_eval.yaml
 ```
 
+For a sanitized sample golden set, use:
+
+```cmd
+uv run python manage.py rag_eval run --config app_retrieval/evaluation/config/eval_sample.yaml
+```
+
 Expected behavior:
 
 - Load the gold JSONL from `NGAIP-362`.
@@ -113,3 +120,75 @@ The runtime implementation should branch from the shared `ragas-rag-evaluation` 
 ## RAGAS-Primary Update
 
 `NGAIP-363` now owns `ragas_adapter.py`, conversion into RAGAS dataset records, construction of RAGAS metric objects, and the default `ragas.evaluate()` call. `harness.py` treats deterministic citation/source checks as report supplements, not replacement metrics.
+
+## Reasoning, Choices, and Code Breakdown
+
+The main design choice is to make `NGAIP-363` the shared execution layer for all RAG metrics. RAGAS calls, model construction, dataset conversion, retrieval orchestration, and report writing belong in one harness so the later metric tickets stay thin and consistent.
+
+Rejected alternatives:
+
+- A separate runner per metric ticket: would duplicate RAGAS setup, dataset conversion, and report logic.
+- Shell-only evaluation scripts: would bypass Django settings, retrieval helpers, user context, and backend models.
+- Hardcoding Azure OpenAI only: insufficient because Pratt ModelHub may provide the OpenAI-compatible model endpoint in the runtime environment.
+
+Code/file breakdown:
+
+- `config/__init__.py`: exposes the lightweight `EvalConfig` used by the management command and harness.
+- `config/eval_config.py`: parses the richer `evaluator:` config, including Azure OpenAI and ModelHub-backed provider settings.
+- `config/rag_eval.yaml`: default RAGAS evaluation config.
+- `config/eval_sample.yaml`: sample config pointing at `sample_gold.jsonl` for local end-to-end wiring tests.
+- `ragas_factory.py`: builds LangChain/RAGAS LLM and embedding objects, centralizes Azure OpenAI and ModelHub token/header handling.
+- `ragas_adapter.py`: maps ticket metric keys to RAGAS metric classes, builds RAGAS records/datasets, calls `ragas.evaluate()`, and normalizes results.
+- `harness.py`: selects retrievers, collects contexts, runs RAGAS through the adapter, adds deterministic supplements, and writes report payloads.
+- `management/commands/rag_eval.py`: gives the backend a Django-native command entry point.
+- `test_eval_harness.py`: verifies metric mapping, record conversion, deterministic citation supplements, and that RAGAS is the primary evaluation path.
+
+This structure lets `NGAIP-364`, `365`, and `366` plug into a common RAGAS-first flow instead of each reinventing evaluator setup.
+
+## Runtime Setup and Test Playbook
+
+Run from the backend repository root on the runtime machine, where `manage.py` lives. The transfer script creates or switches to `ngaip-363-rag-evaluation-harness` from the local-only base branch `main-backup-for-mac-claude-repo-04-07-2026`.
+
+```cmd
+cd C:\path\to\ENCHS-PW-GenAI-Backend
+py -3 C:\path\to\rag_eval\evals\ngaip-363-transfer.py
+```
+
+On macOS/Linux use:
+
+```bash
+cd /path/to/ENCHS-PW-GenAI-Backend
+python3 /path/to/rag_eval/evals/ngaip-363-transfer.py
+```
+
+Set up dependencies with `uv`:
+
+```cmd
+uv add ragas datasets lancedb openai
+uv add langchain==0.3.10 langchain-community==0.3.4 langchain-core==0.3.21 langchain-openai==0.2.11
+uv add --dev pytest pytest-django pytest-asyncio
+uv sync --group dev
+```
+
+Run structural tests first. They should not require live model credentials because RAGAS/model calls are mocked where needed.
+
+```cmd
+uv run pytest tests/app_retrieval/test_eval_harness.py -v
+uv run python -c "from app_retrieval.evaluation.config import EvalConfig; print(EvalConfig(folder_ids=[], gold_file='app_retrieval/evaluation/config/ci_gold.jsonl').model_dump())"
+```
+
+To test harness wiring with the sample golden set after `NGAIP-362` or this script has generated `sample_gold.jsonl`, run:
+
+```cmd
+uv run python manage.py rag_eval run --config app_retrieval/evaluation/config/eval_sample.yaml
+```
+
+Live RAGAS evaluation requires Azure OpenAI or ModelHub-backed OpenAI-compatible credentials. For ModelHub, configure `provider: modelhub_azure_openai` and set the `MODELHUB_TOKEN_*` and `OPENAI_API_LLM_*` environment variables described in the runbook.
+
+The transfer script force-adds generated tests automatically. If you stage manually, use:
+
+```cmd
+git add app_retrieval/evaluation/config/__init__.py app_retrieval/evaluation/config/eval_config.py app_retrieval/evaluation/ragas_factory.py app_retrieval/evaluation/ragas_adapter.py app_retrieval/evaluation/harness.py app_retrieval/management/commands/rag_eval.py app_retrieval/evaluation/config/*.yaml app_retrieval/evaluation/config/*.jsonl
+git add -f tests/app_retrieval/test_eval_harness.py
+git commit -m "NGAIP-363: Apply transfer script changes"
+```

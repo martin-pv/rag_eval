@@ -87,3 +87,55 @@ The runtime implementation should branch from `ragas-rag-evaluation` after `NGAI
 ## RAGAS-Primary Update
 
 `NGAIP-365` should use RAGAS context precision/recall/relevancy metrics as the primary context relevancy signal. Token overlap remains useful for fast CI diagnostics and threshold calibration, but it is no longer the main metric.
+
+## Reasoning, Choices, and Code Breakdown
+
+The main design choice is to make RAGAS context precision/recall the primary context relevancy signal while retaining token overlap as a fast diagnostic. Semantic context can be relevant even when it does not share many words with the reference answer, so overlap alone is not a reliable quality gate.
+
+Rejected alternatives:
+
+- Token overlap as the primary metric: cheap but too brittle for semantic retrieval.
+- Manual review only: useful for calibration, but too slow for repeatable CI/regression checks.
+- Running against a separate toy retriever: would not measure the existing LanceDB-backed PrattWise retrieval behavior.
+
+Code/file breakdown:
+
+- `metrics/context_relevancy.py`: thin metric module that builds/uses RAGAS context metrics through the shared adapter and exposes deterministic overlap diagnostics.
+- `tests/test_context_relevancy.py`: verifies RAGAS input shaping, empty retrieval handling, deterministic overlap behavior, and evaluator metadata plumbing.
+- `harness.py` from `NGAIP-363`: supplies retrieved contexts from semantic, keyword, or hybrid retrieval paths.
+- `sample_gold.jsonl` from `NGAIP-362`: gives a small fixture for validating context conversion before real corpus data is ready.
+
+This choice aligns the metric with the user-visible RAG experience: the question is whether retrieved context can support the answer, not whether the same exact words appear.
+
+## Runtime Setup and Test Playbook
+
+Run from the backend repository root after `NGAIP-362`, `NGAIP-363`, and `NGAIP-415` have been applied. The transfer script creates or switches to `ngaip-365-context-relevancy-metric` from the local-only base branch.
+
+```cmd
+cd C:\path\to\ENCHS-PW-GenAI-Backend
+py -3 C:\path\to\rag_eval\evals\ngaip-365-transfer.py
+uv sync --group dev
+```
+
+Run CI-safe tests first. These should validate RAGAS record shaping and deterministic token-overlap diagnostics without live model calls:
+
+```cmd
+uv run pytest tests/app_retrieval/test_context_relevancy.py -v
+uv run pytest tests/app_retrieval/test_eval_harness.py -v
+```
+
+Use the sample golden set to check end-to-end harness plumbing once `eval_sample.yaml` exists:
+
+```cmd
+uv run python manage.py rag_eval run --config app_retrieval/evaluation/config/eval_sample.yaml
+```
+
+For live RAGAS context precision/recall, make sure the evaluator config uses the same embedding model/deployment family as the LanceDB index. Mismatched embeddings can make retrieval and context scores misleading.
+
+Manual staging must force-add generated tests:
+
+```cmd
+git add app_retrieval/evaluation/metrics/context_relevancy.py
+git add -f tests/app_retrieval/test_context_relevancy.py
+git commit -m "NGAIP-365: Apply transfer script changes"
+```

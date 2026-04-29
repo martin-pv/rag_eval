@@ -8,6 +8,7 @@ Cross-platform equivalent of zh-65-transfer.sh (Windows/macOS/Linux).
 """
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -284,9 +285,24 @@ else:
     TEST_FILE.write_text(TEST_CONTENT, encoding="utf-8")
     print(f"[ZH-65] Wrote: {TEST_FILE}")
 
+
+def run_pytest() -> None:
+    """Run generated ZH-65 tests before staging."""
+    subprocess.run([sys.executable, "-m", "pytest", "tests/app_extensions/test_folder_dedup.py", "-v"], check=True)
+
+
+def stage_changes() -> None:
+    """Stage source changes and force-add generated tests."""
+    subprocess.run(["git", "add", str(TARGET)], check=True)
+    subprocess.run(["git", "add", "-f", str(TEST_FILE)], check=True)
+    print("[ZH-65] Staged api_folders.py and force-added generated tests")
+
 # ---------------------------------------------------------------------------
 # Done
 # ---------------------------------------------------------------------------
+
+run_pytest()
+stage_changes()
 
 print("[ZH-65] Done.")
 print()

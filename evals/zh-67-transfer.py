@@ -175,9 +175,24 @@ else:
     TEST_FILE.write_text(TEST_CONTENT, encoding="utf-8")
     print(f"[ZH-67] Wrote: {TEST_FILE}")
 
+
+def run_pytest() -> None:
+    """Run generated ZH-67 tests before staging."""
+    subprocess.run([sys.executable, "-m", "pytest", "tests/app_chatbot/test_utils.py", "-v"], check=True)
+
+
+def stage_changes() -> None:
+    """Stage source changes and force-add generated tests."""
+    git("add", str(TARGET))
+    git("add", "-f", str(TEST_FILE))
+    print("[ZH-67] Staged chatstream.py and force-added generated tests")
+
 # ---------------------------------------------------------------------------
 # Done
 # ---------------------------------------------------------------------------
+
+run_pytest()
+stage_changes()
 
 print("[ZH-67] Done. Verify with:")
 print("  pytest tests/app_chatbot/test_utils.py -v")

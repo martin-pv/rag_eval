@@ -106,3 +106,52 @@ The runtime implementation should branch from the shared `ragas-rag-evaluation` 
 ## RAGAS-Primary Update
 
 `NGAIP-415` success criteria should describe RAGAS metrics as the primary contract for retrieval, citation grounding, and response quality. Deterministic PrattWise checks are retained as supplemental diagnostics for metadata/source integrity and CI triage.
+
+## Reasoning, Choices, and Code Breakdown
+
+The main design choice is to make `NGAIP-415` the contract ticket: it defines metric IDs, report schema, evaluator metadata, provenance, and threshold policy while other tickets implement the calculations. This prevents each metric from inventing its own report format.
+
+Rejected alternatives:
+
+- Hardcoding thresholds inside metric modules: makes calibration and stakeholder approval difficult.
+- Leaving report shape implicit: causes downstream consumers and screenshots to drift across tickets.
+- RAGAS-only report fields: insufficient because PrattWise deterministic citation/source diagnostics also need a schema.
+
+Code/file breakdown:
+
+- `metrics_spec.yaml`: lists RAGAS-primary metrics, deterministic supplements, target direction, owner ticket, and draft threshold status.
+- `eval_report.schema.json`: validates report structure including evaluator metadata, provenance, aggregate scores, per-row results, and pass/fail summary.
+- `docs/metrics_spec.md`: human-readable explanation of the metric catalog and success criteria.
+- `test_metrics_spec.py`: validates YAML/JSON syntax and contract assumptions.
+
+This ticket is where reviewers should look to understand what “passing RAG evaluation” means, while the actual scoring code remains in the metric/harness tickets.
+
+## Runtime Setup and Test Playbook
+
+Run from the backend repository root after `NGAIP-362` and `NGAIP-363` have established the gold data and harness shape. The transfer script creates or switches to `ngaip-415-metrics-success-criteria` from the local-only base branch.
+
+```cmd
+cd C:\path\to\ENCHS-PW-GenAI-Backend
+py -3 C:\path\to\rag_eval\evals\ngaip-415-transfer.py
+uv sync --group dev
+```
+
+Run schema and metrics-spec checks:
+
+```cmd
+uv run python -c "import yaml; yaml.safe_load(open('app_retrieval/evaluation/config/metrics_spec.yaml')); print('YAML OK')"
+uv run python -c "import json; json.load(open('app_retrieval/evaluation/config/eval_report.schema.json')); print('JSON OK')"
+uv run pytest tests/app_retrieval/test_metrics_spec.py -v
+```
+
+After `NGAIP-363` can emit a sample report, validate that the report contains the fields owned by this ticket: evaluator metadata, testset provenance, aggregate scores, and pass/fail summary.
+
+Manual staging must force-add generated tests:
+
+```cmd
+git add app_retrieval/evaluation/config/metrics_spec.yaml app_retrieval/evaluation/config/eval_report.schema.json docs/metrics_spec.md
+git add -f tests/app_retrieval/test_metrics_spec.py
+git commit -m "NGAIP-415: Apply transfer script changes"
+```
+
+Keep thresholds marked draft until calibrated against approved `NGAIP-362` gold data and stakeholder sign-off. The sample golden set is only for plumbing validation.

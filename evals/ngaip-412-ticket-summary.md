@@ -67,3 +67,48 @@ These tests prove the diagnostic scorer and report shape. They do not prove prod
 ## Branching and Commit Behavior
 
 The runtime implementation should preserve `NGAIP-412` as a completed design/POC branch. The transfer script still supports local repeatable use by bootstrapping from local `main-backup-for-mac-claude-repo-04-07-2026`, switching or creating the ticket branch, applying files, and committing locally without pushing.
+
+## Reasoning, Choices, and Code Breakdown
+
+The main design choice is to keep `NGAIP-412` as a design POC rather than evolve it into production code. Its overlap scorer and synthetic fixtures are useful for explaining the evaluation shape, but the RAGAS-first decision moved production work into `NGAIP-363` and the later metric tickets.
+
+Rejected alternatives:
+
+- Promoting the POC runner into production: would carry early assumptions forward and duplicate the real harness.
+- Deleting the POC entirely: would lose useful architecture notes and baseline examples.
+- Treating token overlap as final RAG quality: no longer matches the selected RAGAS-first approach.
+
+Code/file breakdown:
+
+- POC docs/ADR: explain the evaluation architecture and why it changed.
+- Synthetic fixtures: demonstrate expected input/output shapes without relying on production data.
+- Overlap scorer: retained only as a deterministic diagnostic and teaching baseline.
+- POC tests: verify the overlap scorer/report shape, not production RAGAS behavior.
+
+This ticket should help reviewers understand the evolution of the design, while `NGAIP-363` remains the implementation target.
+
+## Runtime Setup and Test Playbook
+
+Run from the backend repository root only when preserving or replaying the design POC. This ticket is not the production RAGAS harness; `NGAIP-363` owns that.
+
+```cmd
+cd C:\path\to\ENCHS-PW-GenAI-Backend
+py -3 C:\path\to\rag_eval\evals\ngaip-412-transfer.py
+uv sync --group dev
+```
+
+Run lightweight POC tests only:
+
+```cmd
+uv run pytest tests/app_retrieval/test_overlap_scorer.py -v
+```
+
+If the POC emits report examples, compare their shape to the `NGAIP-415` schema, but do not use overlap scores as production RAG quality gates.
+
+Manual staging must force-add generated tests if they are under `tests/`:
+
+```cmd
+git add docs app_retrieval/evaluation
+git add -f tests/app_retrieval/test_overlap_scorer.py
+git commit -m "NGAIP-412: Apply transfer script changes"
+```
