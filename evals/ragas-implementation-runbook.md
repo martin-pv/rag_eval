@@ -345,6 +345,78 @@ def normalize_ragas_testset(testset, documents: Sequence[Document]) -> list[dict
 
 The actual `generator_llm`, `critic_llm`, and `embeddings` should come from the same evaluator config used by the harness. For Azure OpenAI, build those objects in one shared RAGAS/LangChain factory owned by `NGAIP-363`.
 
+### Golden Test Generator Orchestration
+
+`NGAIP-362` should include one command/module that wires the document loader, Azure OpenAI factory, and RAGAS testset generator together. This is the path that produces the candidate golden set.
+
+Recommended file: `app_retrieval/evaluation/golden_test_generator.py`
+
+```python
+from __future__ import annotations
+
+from pathlib import Path
+
+from app_retrieval.evaluation.config.eval_config import load_eval_config
+from app_retrieval.evaluation.langchain_document_loader import (
+    dump_candidate_rows,
+    load_langchain_documents,
+)
+from app_retrieval.evaluation.ragas_factory import (
+    build_ragas_azure_completion_llm,
+    build_ragas_langchain_models,
+)
+from app_retrieval.evaluation.testset_generator import generate_candidate_testset
+
+
+def generate_golden_candidates(
+    *,
+    source_docs_path: Path,
+    eval_config_path: Path,
+    output_path: Path,
+    size: int,
+) -> list[dict]:
+    """Generate candidate golden-set rows from approved source documents."""
+    config = load_eval_config(eval_config_path)
+    if not config.evaluator.enabled:
+        raise ValueError("RAGAS evaluator must be enabled to generate golden candidates")
+
+    documents = load_langchain_documents(source_docs_path)
+
+    # Use AzureChatOpenAI by default for RAGAS generation/judging and Azure
+    # embeddings for document/testset embedding. Keep AzureOpenAI completion
+    # available for RAGAS paths that specifically need completion-style LLMs.
+    chat_llm, embeddings = build_ragas_langchain_models(config.evaluator)
+    completion_llm = build_ragas_azure_completion_llm(config.evaluator)
+
+    candidates = generate_candidate_testset(
+        documents,
+        size=size,
+        generator_llm=chat_llm,
+        critic_llm=completion_llm,
+        embeddings=embeddings,
+    )
+    dump_candidate_rows(output_path, candidates)
+    return candidates
+```
+
+If the installed RAGAS version expects both `generator_llm` and `critic_llm` to be chat-compatible, pass `chat_llm` for both values. Keep that decision inside this orchestration/factory layer so the rest of the harness does not care which exact RAGAS API version is installed.
+
+Recommended command shape:
+
+```cmd
+uv run python -m app_retrieval.evaluation.golden_test_generator --source-docs approved_docs.jsonl --config app_retrieval/evaluation/config/rag_eval.yaml --output candidate_testset.jsonl --size 50
+```
+
+Tests for this orchestration should mock:
+
+- `load_langchain_documents`
+- `build_ragas_langchain_models`
+- `build_ragas_azure_completion_llm`
+- `generate_candidate_testset`
+- `dump_candidate_rows`
+
+That gives Django/pytest coverage for the golden generator wiring without making live Azure OpenAI or RAGAS calls.
+
 ### Using RAGAS Testset Generator for the Golden Set
 
 Use the RAGAS testset generator as the first draft of the golden set, not as an automatic replacement for human-approved gold data.
@@ -973,11 +1045,13 @@ Implementation checklist:
 - Add `app_retrieval/evaluation/gold_loader.py`.
 - Add `app_retrieval/evaluation/langchain_document_loader.py`.
 - Add a RAGAS testset-generator wrapper for producing candidate rows from approved source documents.
+- Add `app_retrieval/evaluation/golden_test_generator.py` to orchestrate document loading, Azure OpenAI model creation, RAGAS testset generation, and candidate export.
 - Add `app_retrieval/evaluation/gold_promoter.py` to convert reviewed RAGAS candidates into official gold rows.
 - Add an intermediate candidate schema/document explaining review status and provenance fields.
 - Add tests for valid rows, missing fields, invalid JSON, extra fields, and optional spans/chunk ids.
 - Add tests for LangChain `Document` loading and provenance preservation.
 - Add tests for converting mocked RAGAS-generated examples into candidate rows.
+- Add tests for golden test generator orchestration with all live model/RAGAS calls mocked.
 - Add tests for promoting only approved/edited candidates into the official golden set.
 
 Use Pydantic here.
@@ -1003,6 +1077,7 @@ Done when:
 - Gold fixture loads successfully.
 - Invalid rows fail with useful errors.
 - RAGAS-generated candidates can be reviewed and promoted into validated `gold.jsonl`.
+- Golden test generator wiring is covered by mocked Django/pytest tests.
 - Tests run under Django/pytest without live RAGAS credentials.
 
 ### NGAIP-363: RAG Evaluation Harness
@@ -1191,6 +1266,7 @@ Suggested test groups:
 
 - `test_gold_loader.py`: no RAGAS calls.
 - `test_gold_promoter.py`: no RAGAS calls; verifies reviewed candidates become valid `GoldRow` rows.
+- `test_golden_test_generator.py`: no live calls; mocks document loading, Azure OpenAI factory, RAGAS generation, and candidate writing.
 - `test_eval_config.py`: no RAGAS calls.
 - `test_ragas_adapter.py`: no live LLM; verify input mapping.
 - `test_metric_context_relevancy.py`: deterministic plus mocked RAGAS.
