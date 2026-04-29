@@ -12,6 +12,36 @@ The intended branch model is:
 
 The transfer scripts in this repository are still useful as repeatable generators, but the actual runtime machine should use Git branches and commits to preserve each ticket as reviewable work.
 
+## How to Use the Code Blocks in This Runbook
+
+Some code blocks below are intended as copy/paste implementation templates. Others are reference-only examples from the practical RAGAS guide and should not be pasted into PrattWise as-is.
+
+Copy/paste-ready templates, subject to small import/path adjustments on the runtime machine:
+
+| Ticket | Paste Into File | Purpose |
+|---|---|---|
+| `NGAIP-362` | `app_retrieval/evaluation/langchain_document_loader.py` | Load approved source exports into LangChain `Document` objects for RAGAS testset generation. |
+| `NGAIP-362` | `app_retrieval/evaluation/testset_generator.py` | Wrap RAGAS `TestsetGenerator` and normalize generated candidates. |
+| `NGAIP-362` | `app_retrieval/evaluation/golden_test_generator.py` | Orchestrate document loading, Azure OpenAI model creation, RAGAS testset generation, and candidate export. |
+| `NGAIP-362` | `app_retrieval/evaluation/gold_promoter.py` | Promote reviewed RAGAS-generated candidates into the official Pydantic-validated gold set. |
+| `NGAIP-363` | `app_retrieval/evaluation/config/eval_config.py` | Parse evaluator config, including the `evaluator:` section. |
+| `NGAIP-363` | `app_retrieval/evaluation/ragas_factory.py` | Build Azure OpenAI, Azure embeddings, and optional direct OpenAI/RAGAS objects. |
+
+Reference-only examples, do not paste directly as production PrattWise code:
+
+- The FAISS minimal RAG pipeline. It is only for local RAGAS wiring experiments.
+- The generic LanceDB retriever. Use it as a shape reference, but adapt to existing PrattWise retrieval helpers and the real LanceDB schema.
+- The generic `collect_rag_outputs(...)` function. Use the idea, but wire it to PrattWise retriever/assistant outputs.
+- The generic `run_evaluation(...)` function. In PrattWise, metric tickets should report through the harness as `report.json` and `report.csv`, not only `ragas_results.csv`.
+
+Before pasting any template into the backend repo:
+
+- Confirm the target branch matches the ticket.
+- Confirm required dependencies are present through `uv sync`.
+- Confirm imports match the runtime codebase.
+- Add or update tests in `tests/app_retrieval/`.
+- Run Django/pytest structural tests without live model calls first.
+
 ## High-Level Decision
 
 Use the `ragas` library as the primary evaluator framework for semantic RAG quality:
@@ -191,6 +221,8 @@ tests/app_retrieval/test_testset_generator.py
 
 Recommended file: `app_retrieval/evaluation/langchain_document_loader.py`
 
+This block is intended to be pasted into `app_retrieval/evaluation/langchain_document_loader.py` for `NGAIP-362`.
+
 ```python
 from __future__ import annotations
 
@@ -264,6 +296,8 @@ def generate_candidate_testset(source_docs: list[dict], *, size: int) -> list[di
 ```
 
 Recommended file: `app_retrieval/evaluation/testset_generator.py`
+
+This block is intended to be pasted into `app_retrieval/evaluation/testset_generator.py` for `NGAIP-362`.
 
 ```python
 from __future__ import annotations
@@ -351,6 +385,8 @@ The actual `generator_llm`, `critic_llm`, and `embeddings` should come from the 
 
 Recommended file: `app_retrieval/evaluation/golden_test_generator.py`
 
+This block is intended to be pasted into `app_retrieval/evaluation/golden_test_generator.py` for `NGAIP-362`.
+
 ```python
 from __future__ import annotations
 
@@ -432,6 +468,8 @@ The intended `NGAIP-362` workflow is:
 7. Use the validated `gold.jsonl` as the official golden set for `NGAIP-363`, `NGAIP-365`, `NGAIP-364`, and `NGAIP-366`.
 
 Recommended file owned by `NGAIP-362`: `app_retrieval/evaluation/gold_promoter.py`
+
+This block is intended to be pasted into `app_retrieval/evaluation/gold_promoter.py` for `NGAIP-362`.
 
 ```python
 from __future__ import annotations
@@ -564,6 +602,8 @@ Report metadata should include:
 
 Recommended file owned by `NGAIP-363`: `app_retrieval/evaluation/config/eval_config.py`
 
+This block is intended to be pasted into `app_retrieval/evaluation/config/eval_config.py` for `NGAIP-363`.
+
 ```python
 from __future__ import annotations
 
@@ -607,6 +647,8 @@ def load_eval_config(path: Path) -> EvalConfig:
 ```
 
 Recommended file owned by `NGAIP-363`: `app_retrieval/evaluation/ragas_factory.py`
+
+This block is intended to be pasted into `app_retrieval/evaluation/ragas_factory.py` for `NGAIP-363`.
 
 ```python
 from __future__ import annotations
@@ -746,7 +788,7 @@ Do not spread this version-specific mapping through the codebase. `NGAIP-363` sh
 
 The teammate guide starts with a minimal local RAG pipeline. That is useful for proving RAGAS wiring before connecting to PrattWise retrieval.
 
-Reference-only example:
+Reference-only example. Do not paste this into PrattWise production code as-is:
 
 ```python
 from langchain.chains import RetrievalQA
@@ -781,6 +823,8 @@ The teammate guide correctly notes that RAGAS does not care which vector store p
 - reference/gold answer
 
 If testing directly against an existing LanceDB table, the generic retriever shape is:
+
+Reference-only example. Use this to understand the shape, then adapt to existing PrattWise retrieval helpers and the real table schema:
 
 ```python
 import lancedb
@@ -853,6 +897,8 @@ eval_samples = [
 
 After the RAG pipeline runs, `NGAIP-363` should collect:
 
+Reference-only example. The real collector should use PrattWise result objects:
+
 ```python
 def collect_rag_outputs(qa_chain, eval_samples: list[dict]) -> list[dict]:
     rows: list[dict] = []
@@ -882,6 +928,8 @@ PrattWise adaptation:
 ### Running RAGAS Evaluation
 
 The teammate guide uses the standard RAGAS evaluation shape:
+
+Reference-only example. The real implementation should feed results through the PrattWise harness/reporters:
 
 ```python
 from datasets import Dataset
