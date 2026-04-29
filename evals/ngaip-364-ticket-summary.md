@@ -18,4 +18,4 @@ RAGAS can evaluate whether an answer is grounded in the retrieved context, but i
 - Keep `citation_precision`, `citation_recall`, and `hallucination_rate` deterministic for source metadata.
 - Define hallucination as cited `asset_id` not present in retrieved sources unless NGAIP-415 changes the rule.
 - Include a wrong-page/wrong-source regression test because that is the key acceptance-risk case.
-- Keep branch setup inside `ngaip-364-transfer.py` so runtime deployment starts from current `main`.
+- Keep branch setup inside `ngaip-364-transfer.py` so Windows runtime deployment starts from `main-backup-for-mac-claude-repo-04-07-2026`.

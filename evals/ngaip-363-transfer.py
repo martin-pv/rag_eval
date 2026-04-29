@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 BRANCH = "ngaip-363-rag-evaluation-harness"
-BASE_BRANCH = "main"
+BASE_BRANCH = "main-backup-for-mac-claude-repo-04-07-2026"
 BACKEND = Path.cwd()
 
 
@@ -45,7 +45,7 @@ def git_or(*args):
 
 
 def ensure_ticket_branch() -> None:
-    """Create or switch to this ticket branch from current main."""
+    """Create or switch to this ticket branch from the Windows backend backup branch."""
     print(f"[363-transfer] Preparing branch: {BRANCH}")
     git("fetch", "origin", BASE_BRANCH)
     git("switch", BASE_BRANCH)

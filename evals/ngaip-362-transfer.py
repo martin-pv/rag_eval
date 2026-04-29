@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 BRANCH = "ngaip-362-corpus-gold-dataset"
-BASE_BRANCH = "main"
+BASE_BRANCH = "main-backup-for-mac-claude-repo-04-07-2026"
 
 
 def git(*args):
@@ -23,7 +23,7 @@ def git_or(*args):
 
 
 def ensure_ticket_branch() -> None:
-    """Create or switch to this ticket branch from current main."""
+    """Create or switch to this ticket branch from the Windows backend backup branch."""
     print(f"[362-transfer] Preparing branch: {BRANCH}")
     git("fetch", "origin", BASE_BRANCH)
     git("switch", BASE_BRANCH)

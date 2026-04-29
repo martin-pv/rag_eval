@@ -6,7 +6,7 @@ NGAIP-363 builds the reusable Pratt-Backend harness that runs RAG evaluations ag
 
 ## Solution
 
-This worktree creates the `app_retrieval/evaluation/` package, Django management command, retriever adapters, reporter scaffolding, metric stubs/adapters, config fixtures, and tests. The transfer script adds RAGAS dependencies and generated harness files, and now bootstraps the ticket branch from current `main` before applying changes.
+This worktree creates the `app_retrieval/evaluation/` package, Django management command, retriever adapters, reporter scaffolding, metric stubs/adapters, config fixtures, and tests. The transfer script adds RAGAS dependencies and generated harness files, and now bootstraps the ticket branch from `main-backup-for-mac-claude-repo-04-07-2026` before applying changes.
 
 ## Reasoning
 
@@ -18,4 +18,4 @@ The harness should run in-process instead of through HTTP. In-process execution 
 - Keep retriever selection configurable: semantic, keyword, and hybrid.
 - Emit both `report.json` and `report.csv` for machine validation and stakeholder review.
 - Gate live RAGAS/model calls through config so CI can run on redacted fixtures without credentials.
-- Keep branch setup inside `ngaip-363-transfer.py` so runtime deployment starts from current `main`.
+- Keep branch setup inside `ngaip-363-transfer.py` so Windows runtime deployment starts from the backend backup branch.
