@@ -68,6 +68,7 @@ Because PrattWise handles PDFs, OCR, tables, and mixed source parts, report rows
 - `content_type`
 - `source_metadata`
 - `knowledge_graph_context`
+- LanceDB/vector-store provenance, including table/source metadata where available
 
 RAGAS evaluates the text/markdown/context representation provided to the model. The metrics contract should allow reports to break out scores by source modality so failures in OCR/table handling are visible.
 

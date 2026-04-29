@@ -19,6 +19,10 @@ Secondary diagnostics:
 - hit rate at K
 - retrieval precision/recall at K when deterministic gold spans or chunk ids are available
 
+## LanceDB Context Source
+
+The contexts scored by RAGAS should come from the existing LanceDB-backed retrieval path. Use the same embedding model/deployment that populated LanceDB; mismatched embeddings will make context relevancy scores misleading.
+
 ## RAGAS Role
 
 RAGAS is used because semantically relevant context may not share exact tokens with the gold answer. The metric should ask whether the retrieved context can support the expected answer, not only whether words overlap.
@@ -26,7 +30,7 @@ RAGAS is used because semantically relevant context may not share exact tokens w
 The implementation should adapt PrattWise harness outputs into RAGAS input shape:
 
 - question or user input
-- retrieved contexts
+- contexts retrieved from the existing LanceDB vector store
 - reference answer or gold answer
 - optional retrieved metadata for reporting
 

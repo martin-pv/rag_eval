@@ -49,7 +49,8 @@ from app.settings_intellisense import settings
 It should provide:
 
 - `AzureChatOpenAI` for RAGAS judge/generator paths.
-- `AzureOpenAIEmbeddings` for PrattWise default embeddings.
+- `AzureOpenAIEmbeddings` for PrattWise Azure embeddings.
+- `langchain_openai.OpenAIEmbeddings` for direct OpenAI embeddings when LanceDB smoke tests or non-Azure configs require it.
 - `langchain_openai.llms.AzureOpenAI` for completion-style RAGAS flows when needed.
 - `ragas.embeddings.OpenAIEmbeddings` as a direct OpenAI option for non-Azure experiments.
 
@@ -58,7 +59,7 @@ It should provide:
 The backend uses `uv sync`, so dependencies should be added through `uv` rather than only installed into an active environment:
 
 ```cmd
-uv add ragas datasets
+uv add ragas datasets lancedb
 uv add langchain langchain-core langchain-openai langchain-community
 uv add --dev pytest pytest-django pytest-asyncio
 uv sync --group dev
@@ -67,11 +68,15 @@ uv sync --group dev
 If the runtime branch needs pinned versions, use the runbook pins:
 
 ```cmd
-uv add ragas>=0.2.0 datasets>=2.14.0
+uv add ragas>=0.2.0 datasets>=2.14.0 lancedb
 uv add langchain==0.3.10 langchain-community==0.3.4 langchain-core==0.3.21 langchain-openai==0.2.11
 uv add --dev pytest==8.3.3 pytest-django==4.9.0 pytest-asyncio==0.23.8
 uv sync --group dev
 ```
+
+## LanceDB Ownership
+
+This ticket owns the harness adapter path that retrieves contexts from the existing LanceDB-backed PrattWise retrieval layer. Raw LanceDB access should be limited to smoke tests or document generation helpers; production evaluation should use the same retrieval code path the application uses.
 
 ## Harness Behavior
 
@@ -85,7 +90,7 @@ Expected behavior:
 
 - Load the gold JSONL from `NGAIP-362`.
 - Select semantic, keyword, or hybrid retrieval.
-- Call real PrattWise retrieval helpers in-process.
+- Call real PrattWise retrieval helpers in-process, backed by the existing LanceDB vector store.
 - Run enabled metric adapters.
 - Emit `report.json` and `report.csv`.
 - Include evaluator metadata for reproducibility.

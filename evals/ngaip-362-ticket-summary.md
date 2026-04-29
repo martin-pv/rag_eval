@@ -36,16 +36,21 @@ Pydantic is still used here because it validates the gold data schema. RAGAS eva
 
 ## Golden Set Flow
 
-1. Export or curate approved source documents from PrattWise/Samba.
-2. Load them into LangChain `Document` objects with `asset_id`, `chunk_id`, content type, and source metadata.
-3. Load or construct knowledge graph context for the same corpus.
-4. Serialize KG nodes and relationships into readable context text.
-5. Attach KG context to the LangChain documents before candidate generation.
-6. Run the RAGAS `TestsetGenerator` to create candidate questions, reference answers, and supporting context.
-7. Write candidates to `candidate_testset.jsonl`.
-8. Human reviewers mark each candidate `approved`, `edited`, or `rejected`.
-9. Promote only approved/edited candidates through `gold_promoter.py`.
-10. Validate promoted rows with `GoldRow` before the official gold JSONL is used by the harness.
+1. Use the existing PrattWise LanceDB vector store as the primary source of approved chunks.
+2. Load LanceDB rows into LangChain `Document` objects with `asset_id`, `chunk_id`, content type, and source metadata.
+3. Keep JSONL export loading only as an offline/redacted fallback.
+4. Load or construct knowledge graph context for the same corpus.
+5. Serialize KG nodes and relationships into readable context text.
+6. Attach KG context to the LangChain documents before candidate generation.
+7. Run the RAGAS `TestsetGenerator` to create candidate questions, reference answers, and supporting context.
+8. Write candidates to `candidate_testset.jsonl`.
+9. Human reviewers mark each candidate `approved`, `edited`, or `rejected`.
+10. Promote only approved/edited candidates through `gold_promoter.py`.
+11. Validate promoted rows with `GoldRow` before the official gold JSONL is used by the harness.
+
+## LanceDB Loader Requirement
+
+The loader should use `lancedb` to read the existing vector-store table and `langchain_core.documents.Document` as the adapter object for RAGAS. It should not create a separate vector store for evaluation. It must map the real table text field, preserve source metadata, and avoid copying vector columns into metadata.
 
 ## RAGAS Role
 
@@ -71,7 +76,7 @@ Use `content_type` or metadata tags such as `text`, `table`, `ocr`, `graph`, or 
 This ticket depends on the shared RAGAS branch setup:
 
 ```cmd
-uv add ragas datasets
+uv add ragas datasets lancedb
 uv add langchain langchain-core langchain-openai langchain-community
 uv add --dev pytest pytest-django pytest-asyncio
 uv sync --group dev

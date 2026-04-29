@@ -20,18 +20,18 @@ Copy/paste-ready templates, subject to small import/path adjustments on the runt
 
 | Ticket | Paste Into File | Purpose |
 |---|---|---|
-| `NGAIP-362` | `app_retrieval/evaluation/langchain_document_loader.py` | Load approved source exports into LangChain `Document` objects for RAGAS testset generation. |
+| `NGAIP-362` | `app_retrieval/evaluation/langchain_document_loader.py` | Load existing LanceDB rows or approved exports into LangChain `Document` objects for RAGAS testset generation. |
 | `NGAIP-362` | `app_retrieval/evaluation/knowledge_graph_context.py` | Serialize PrattWise knowledge graph nodes/links as extra generation context. |
 | `NGAIP-362` | `app_retrieval/evaluation/testset_generator.py` | Wrap RAGAS `TestsetGenerator` and normalize generated candidates. |
 | `NGAIP-362` | `app_retrieval/evaluation/golden_test_generator.py` | Orchestrate document loading, Azure OpenAI model creation, RAGAS testset generation, and candidate export. |
 | `NGAIP-362` | `app_retrieval/evaluation/gold_promoter.py` | Promote reviewed RAGAS-generated candidates into the official Pydantic-validated gold set. |
 | `NGAIP-363` | `app_retrieval/evaluation/config/eval_config.py` | Parse evaluator config, including the `evaluator:` section. |
-| `NGAIP-363` | `app_retrieval/evaluation/ragas_factory.py` | Build Azure OpenAI, Azure embeddings, and optional direct OpenAI/RAGAS objects. |
+| `NGAIP-363` | `app_retrieval/evaluation/ragas_factory.py` | Build Azure OpenAI, Azure embeddings, and `langchain_openai.OpenAIEmbeddings` for LanceDB/RAGAS adapters. |
 
 Reference-only examples, do not paste directly as production PrattWise code:
 
 - The FAISS minimal RAG pipeline. It is only for local RAGAS wiring experiments.
-- The generic LanceDB retriever. Use it as a shape reference, but adapt to existing PrattWise retrieval helpers and the real LanceDB schema.
+- The generic LanceDB retriever. Use it as a shape reference only; the implementation should use the existing PrattWise LanceDB vector store and real table schema.
 - The generic `collect_rag_outputs(...)` function. Use the idea, but wire it to PrattWise retriever/assistant outputs.
 - The generic `run_evaluation(...)` function. In PrattWise, metric tickets should report through the harness as `report.json` and `report.csv`, not only `ragas_results.csv`.
 
@@ -50,7 +50,7 @@ Use the `ragas` library as the primary evaluator framework for semantic RAG qual
 - Context relevance should use RAGAS context metrics.
 - Grounding should use RAGAS faithfulness/grounding metrics.
 - Response quality should use RAGAS answer correctness and answer relevancy metrics.
-- Testset creation should use the RAGAS testset generator to produce candidate questions, answers, and references from approved source documents.
+- Testset creation should use the RAGAS testset generator to produce candidate questions, answers, and references from approved source documents loaded from the existing LanceDB vector store when possible.
 
 Keep deterministic PrattWise-specific checks where RAGAS does not know enough about backend metadata:
 
@@ -140,7 +140,7 @@ From the backend project directory:
 
 ```cmd
 cd path\to\Pratt-Backend\backend
-uv add ragas datasets
+uv add ragas datasets lancedb
 uv add langchain langchain-core langchain-openai langchain-community
 uv add --dev pytest pytest-django pytest-asyncio
 uv sync --group dev
@@ -149,7 +149,7 @@ uv sync --group dev
 If the runtime machine needs pinned versions, start with:
 
 ```cmd
-uv add ragas>=0.2.0 datasets>=2.14.0
+uv add ragas>=0.2.0 datasets>=2.14.0 lancedb
 uv add langchain==0.3.10 langchain-community==0.3.4 langchain-core==0.3.21 langchain-openai==0.2.11
 uv add --dev pytest==8.3.3 pytest-django==4.9.0 pytest-asyncio==0.23.8
 uv sync --group dev
@@ -161,7 +161,7 @@ Validate that Django pytest setup works:
 
 ```cmd
 uv run pytest --version
-uv run python -c "from langchain_core.documents import Document; import ragas; print('ragas/langchain OK')"
+uv run python -c "from langchain_core.documents import Document; import lancedb, ragas; from langchain_openai import OpenAIEmbeddings; print('ragas/lancedb/langchain OK')"
 uv run pytest tests/app_retrieval -v
 ```
 
@@ -220,7 +220,7 @@ tests/app_retrieval/test_testset_generator.py
 
 ### LangChain Document Loader Code
 
-`NGAIP-362` should add a loader that turns approved document exports into LangChain `Document` objects. The backend already has LangChain packages in `requirements.txt`, so use `langchain_core.documents.Document` as the stable object shape that RAGAS testset generation can consume.
+`NGAIP-362` should add a loader that turns existing LanceDB vector-store rows into LangChain `Document` objects. The approved runtime path is LanceDB-first because PrattWise already stores retrieved chunks there. JSONL remains useful as an offline/export fallback for screenshots, review, and redacted CI fixtures.
 
 Recommended file: `app_retrieval/evaluation/langchain_document_loader.py`
 
@@ -230,22 +230,63 @@ This block is intended to be pasted into `app_retrieval/evaluation/langchain_doc
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Iterable
+from typing import Any
 
 from langchain_core.documents import Document
 
 
-REQUIRED_SOURCE_FIELDS = {"asset_id", "text"}
+DEFAULT_TEXT_FIELDS = ("text", "content", "chunk", "body", "page_content")
+VECTOR_FIELDS = {"vector", "embedding", "embeddings"}
+REQUIRED_JSONL_FIELDS = {"asset_id", "text"}
+
+
+def _row_to_document(
+    row: dict[str, Any],
+    *,
+    text_fields: Sequence[str] = DEFAULT_TEXT_FIELDS,
+    source_line: int | None = None,
+) -> Document:
+    """Convert a LanceDB/export row into the LangChain Document shape RAGAS expects."""
+    text_field = next((field for field in text_fields if row.get(field)), None)
+    if text_field is None:
+        raise ValueError(f"Row is missing a text field; tried {list(text_fields)}")
+
+    metadata = {
+        key: value
+        for key, value in row.items()
+        if key != text_field and key not in VECTOR_FIELDS
+    }
+    metadata["text_field"] = text_field
+    if source_line is not None:
+        metadata["source_line"] = source_line
+    return Document(page_content=str(row[text_field]), metadata=metadata)
+
+
+def load_lancedb_documents(
+    db_path: str | Path,
+    table_name: str,
+    *,
+    limit: int | None = None,
+    text_fields: Sequence[str] = DEFAULT_TEXT_FIELDS,
+) -> list[Document]:
+    """Load existing LanceDB rows into LangChain Documents for RAGAS generation."""
+    import lancedb
+
+    db = lancedb.connect(str(db_path))
+    table = db.open_table(table_name)
+    rows = table.to_arrow().to_pylist()
+    if limit is not None:
+        rows = rows[:limit]
+    return [_row_to_document(row, text_fields=text_fields) for row in rows]
 
 
 def load_langchain_documents(path: Path) -> list[Document]:
-    """Load approved source-document JSONL into LangChain Documents.
+    """Load an approved JSONL export into LangChain Documents.
 
-    Expected JSONL fields:
-      - asset_id: PrattWise stable source id
-      - text: source text used for testset generation
-      - title/page/section/chunk_id: optional provenance fields
+    This is the offline/export fallback. The preferred runtime path is
+    load_lancedb_documents(...) against the existing PrattWise LanceDB store.
     """
     docs: list[Document] = []
     for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
@@ -255,15 +296,10 @@ def load_langchain_documents(path: Path) -> list[Document]:
             row = json.loads(line)
         except json.JSONDecodeError as exc:
             raise ValueError(f"Invalid source document JSON at line {line_number}: {exc}") from exc
-
-        missing = REQUIRED_SOURCE_FIELDS - row.keys()
+        missing = REQUIRED_JSONL_FIELDS - row.keys()
         if missing:
             raise ValueError(f"Missing source document fields at line {line_number}: {sorted(missing)}")
-
-        metadata = {k: v for k, v in row.items() if k != "text"}
-        metadata["source_line"] = line_number
-        docs.append(Document(page_content=row["text"], metadata=metadata))
-
+        docs.append(_row_to_document(row, source_line=line_number))
     return docs
 
 
@@ -274,9 +310,19 @@ def dump_candidate_rows(path: Path, rows: Iterable[dict]) -> None:
             handle.write(json.dumps(row, ensure_ascii=False) + "\n")
 ```
 
-Use JSONL rather than raw filesystem crawling for the first implementation because it is easier to control approved documents, redact content, preserve `asset_id`, and screenshot/review the exact source list. If later needed, add optional `DirectoryLoader`/`TextLoader` support behind the same `load_langchain_documents()` output shape.
+Use the existing LanceDB table whenever the runtime branch has access to it. Do not rebuild a separate vector store for RAGAS. The loader should inspect or configure the correct text field for the real schema, such as `text`, `content`, `chunk`, `body`, or `page_content`.
 
-Example approved source JSONL:
+Example LanceDB loading call:
+
+```python
+docs = load_lancedb_documents(
+    db_path="/path/to/existing/lancedb",
+    table_name="asset_chunks",
+    text_fields=("content", "text", "chunk"),
+)
+```
+
+JSONL fallback example:
 
 ```json
 {"asset_id":"asset-001","title":"Approved Maintenance Extract","page":12,"section":"Inspection","chunk_id":"chunk-001","text":"Approved source text goes here."}
@@ -284,10 +330,11 @@ Example approved source JSONL:
 
 Loader tests should verify:
 
-- Valid JSONL returns LangChain `Document` objects.
-- `asset_id` and provenance fields are preserved in `metadata`.
-- Missing `asset_id` or `text` raises `ValueError`.
-- Invalid JSON raises `ValueError` with a line number.
+- Existing LanceDB rows become LangChain `Document` objects.
+- `asset_id`, chunk id, content type, and provenance fields are preserved in `metadata`.
+- Vector/embedding columns are not copied into metadata.
+- JSONL fallback still validates `asset_id` and `text`.
+- Missing text fields raise `ValueError`.
 
 ### Knowledge Graph Context Code
 
@@ -753,7 +800,11 @@ from __future__ import annotations
 import os
 
 from app.settings_intellisense import settings
-from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
+from langchain_openai import (
+    AzureChatOpenAI,
+    AzureOpenAIEmbeddings,
+    OpenAIEmbeddings as LangChainOpenAIEmbeddings,
+)
 from langchain_openai.llms import AzureOpenAI
 
 from app_retrieval.evaluation.config.eval_config import RagasEvaluatorConfig
@@ -784,6 +835,14 @@ def build_ragas_langchain_models(config: RagasEvaluatorConfig):
         api_version=getattr(settings, "AZURE_OPENAI_API_VERSION", os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")),
     )
     return llm, embeddings
+
+
+def build_langchain_openai_embeddings(model: str | None = None) -> LangChainOpenAIEmbeddings:
+    """Direct OpenAI embeddings through langchain_openai for LanceDB queries if configured."""
+    return LangChainOpenAIEmbeddings(
+        model=model or getattr(settings, "OPENAI_EMBEDDINGS_MODEL", os.environ.get("OPENAI_EMBEDDINGS_MODEL", "text-embedding-3-small")),
+        api_key=getattr(settings, "OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY")),
+    )
 
 
 def build_ragas_azure_completion_llm(config: RagasEvaluatorConfig) -> AzureOpenAI:
@@ -889,7 +948,7 @@ Reference-only example. Do not paste this into PrattWise production code as-is:
 
 ```python
 from langchain.chains import RetrievalQA
-from langchain.schema import Document
+from langchain_core.documents import Document
 from langchain.vectorstores import FAISS
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
@@ -919,13 +978,13 @@ The teammate guide correctly notes that RAGAS does not care which vector store p
 - retrieved contexts
 - reference/gold answer
 
-If testing directly against an existing LanceDB table, the generic retriever shape is:
+The implementation should be based on the existing LanceDB vector store. If a low-level smoke test queries LanceDB directly, the generic retriever shape is:
 
 Reference-only example. Use this to understand the shape, then adapt to existing PrattWise retrieval helpers and the real table schema:
 
 ```python
 import lancedb
-from langchain.schema import Document
+from langchain_core.documents import Document
 from langchain.retrievers import BaseRetriever
 from langchain_openai import OpenAIEmbeddings
 from pydantic import Field
@@ -960,7 +1019,7 @@ PrattWise adaptation:
 
 - Do not assume the LanceDB text field is named `text`; inspect the table schema and map the correct field, such as `content`, `chunk`, or `body`.
 - Use the same embedding model/deployment that populated the LanceDB table. Mismatched embeddings will make retrieval quality and RAGAS scores misleading.
-- Prefer the existing PrattWise retrieval helpers and adapters in `NGAIP-363` over raw LanceDB access unless the ticket explicitly needs a low-level LanceDB smoke test.
+- Prefer the existing PrattWise LanceDB-backed retrieval helpers and adapters in `NGAIP-363`; use raw LanceDB access only for controlled smoke tests or document/testset generation adapters.
 - Preserve source metadata such as `asset_id`, page, section, and chunk id for `NGAIP-364` citation checks.
 
 Schema inspection command:
