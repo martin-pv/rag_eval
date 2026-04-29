@@ -2,6 +2,7 @@
 """NGAIP-363 Transfer Script — cross-platform (Windows/macOS/Linux)
 Usage: python ngaip-363-transfer.py  (run from repo root)
 """
+import ast
 import subprocess
 from pathlib import Path
 
@@ -52,6 +53,92 @@ def ensure_ticket_branch() -> None:
     git("switch", BASE_BRANCH)
     git("switch", "-c", BRANCH)
 
+
+
+# ---------------------------------------------------------------------------
+# Local commit helper (no push/publish)
+# ---------------------------------------------------------------------------
+
+def _path_from_join_expr(node: ast.AST) -> str | None:
+    parts: list[str] = []
+    cur = node
+    while isinstance(cur, ast.BinOp) and isinstance(cur.op, ast.Div):
+        right = cur.right
+        if isinstance(right, ast.Constant) and isinstance(right.value, str):
+            parts.append(right.value)
+        else:
+            return None
+        cur = cur.left
+    if isinstance(cur, ast.Name) and cur.id in {"BACKEND", "ROOT"}:
+        return "/".join(reversed(parts))
+    return None
+
+
+def _transfer_paths_from_this_script() -> list[str]:
+    tree = ast.parse(Path(__file__).read_text(encoding="utf-8"), filename=__file__)
+    targets: set[str] = set()
+    assigned_paths: dict[str, str] = {}
+    writer_calls = {"ensure", "touch", "append_if_missing", "patch"}
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        path = _path_from_join_expr(node.value)
+        if not path:
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                assigned_paths[target.id] = path.replace("\\", "/")
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Name) and node.args and func.id in writer_calls:
+            first_arg = node.args[0]
+            if isinstance(first_arg, ast.Name):
+                path = assigned_paths.get(first_arg.id)
+            else:
+                path = _path_from_join_expr(first_arg)
+            if path:
+                targets.add(path.replace("\\", "/"))
+        elif isinstance(func, ast.Attribute) and func.attr == "write_text":
+            receiver = func.value
+            if isinstance(receiver, ast.Name):
+                path = assigned_paths.get(receiver.id)
+            else:
+                path = _path_from_join_expr(receiver)
+            if path:
+                targets.add(path.replace("\\", "/"))
+
+    return sorted(targets)
+
+
+def commit_transfer_changes() -> None:
+    paths = _transfer_paths_from_this_script()
+    if not paths:
+        print("[transfer] No generated paths found to commit.")
+        return
+
+    existing_paths = [p for p in paths if (BACKEND / p).exists()]
+    if not existing_paths:
+        print("[transfer] No generated files exist to commit.")
+        return
+
+    print(f"[transfer] Staging {len(existing_paths)} generated file(s) for local commit...")
+    git("add", "--", *existing_paths)
+    staged = subprocess.run(
+        ["git", "diff", "--cached", "--quiet", "--", *existing_paths],
+        cwd=BACKEND,
+        check=False,
+    )
+    if staged.returncode == 0:
+        print("[transfer] No changes to commit.")
+        return
+
+    message = f"{BRANCH}: Apply transfer script changes"
+    git("commit", "-m", message, "--", *existing_paths)
+    print(f"[transfer] Created local commit: {message}")
 
 def ensure(path: Path, content: str):
     """Write file, creating parent dirs. Idempotent -- overwrites if exists."""
@@ -972,6 +1059,8 @@ class TestEvalRunnerEndToEnd:
         fake_retriever.retrieve.assert_not_awaited()
 ''',
     )
+
+    commit_transfer_changes()
 
     print("")
     print("[363-transfer] Complete. Verify with:")
