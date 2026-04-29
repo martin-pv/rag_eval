@@ -37,7 +37,7 @@ Pydantic is still used here because it validates the gold data schema. RAGAS eva
 3. Load or construct knowledge graph context for the same corpus.
 4. Serialize KG nodes and relationships into readable context text.
 5. Attach KG context to the LangChain documents before candidate generation.
-6. Run the RAGAS `TestsetGenerator` to create candidate questions, reference answers, and supporting context.
+6. Run the RAGAS `TestsetGenerator` to create candidate questions, reference answers, and supporting context. If the installed RAGAS version supports it, pass both `knowledge_graph` and serialized `llm_context` so graph relationships influence generation.
 7. Write candidates to `candidate_testset.jsonl`.
 8. Human reviewers mark each candidate `approved`, `edited`, or `rejected`.
 9. Promote only approved/edited candidates through `gold_dataset.py`.
@@ -82,6 +82,8 @@ uv run pytest tests/app_retrieval/test_gold_dataset_generation.py -v
 ```
 
 Only run live RAGAS generation after Azure OpenAI settings and approved source documents are available.
+
+If the runtime uses Pratt ModelHub, `NGAIP-362` should obtain its RAGAS LLM and embedding objects from the `NGAIP-363` factory. The teammate `prattwise-scripts` reference used ModelHub as the gateway while still providing an OpenAI-compatible model to RAGAS.
 
 ## Branching and Commit Behavior
 

@@ -721,6 +721,14 @@ evaluator:
   max_retries: 2
 ```
 
+If the runtime uses Pratt ModelHub as the AI gateway, keep RAGAS wired through the same factory but set `provider: modelhub_azure_openai`. The teammate screenshots show ModelHub minting a bearer token with `client_credentials`, then calling an Azure/OpenAI-compatible chat completions endpoint with:
+
+- `Authorization: Bearer <modelhub token>`
+- `api-key: <OPENAI_API_LLM_KEY>`
+- `Ocp-Apim-Subscription-Key: <OPENAI_API_LLM_KEY>`
+
+ModelHub still provides an OpenAI-compatible model to LangChain/RAGAS; it should be a provider option in `NGAIP-363`, not a separate metric implementation.
+
 Recommended behavior:
 
 - `enabled: false` for default CI and local structural tests.
@@ -767,6 +775,15 @@ class RagasEvaluatorConfig:
     temperature: float = 0
     timeout_seconds: int = 120
     max_retries: int = 2
+    # Optional when provider == "modelhub_azure_openai".
+    modelhub_token_endpoint: str | None = None
+    modelhub_client_id: str | None = None
+    modelhub_client_secret: str | None = None
+    modelhub_scope: str | None = None
+    llm_endpoint: str | None = None
+    llm_api_version: str | None = None
+    llm_api_key: str | None = None
+    embeddings_endpoint: str | None = None
 
 
 @dataclass(frozen=True)
@@ -782,6 +799,8 @@ def load_eval_config(path: Path) -> EvalConfig:
     evaluator = RagasEvaluatorConfig(**evaluator_data)
     if evaluator.framework != "ragas":
         raise ValueError(f"Unsupported evaluator framework: {evaluator.framework}")
+    if evaluator.provider not in {"azure_openai", "modelhub_azure_openai"}:
+        raise ValueError(f"Unsupported evaluator provider: {evaluator.provider}")
     return EvalConfig(
         metrics_spec_version=str(data.get("metrics_spec_version", "unknown")),
         evaluator=evaluator,
@@ -872,6 +891,7 @@ Import note:
 - The class name is `AzureOpenAI`, with capital `A`, `O`, `AI`.
 - Use `AzureChatOpenAI` when the RAGAS metric or judge path expects a chat model.
 - Keep both options centralized in `app_retrieval/evaluation/ragas_factory.py`.
+- If `provider` is `modelhub_azure_openai`, the factory should fetch/cache the ModelHub token and pass ModelHub/APIM headers through the LangChain OpenAI client configuration.
 
 ### Direct RAGAS OpenAI Embeddings Option
 

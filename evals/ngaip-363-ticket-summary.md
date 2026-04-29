@@ -14,8 +14,9 @@ RAGAS is the primary semantic evaluator framework, while the harness keeps Pratt
 
 `ngaip-363-transfer.py` should generate or update:
 
-- `app_retrieval/evaluation/config.py`
+- `app_retrieval/evaluation/config/__init__.py`
 - `app_retrieval/evaluation/config/eval_config.py`
+- `app_retrieval/evaluation/config/rag_eval.yaml`
 - `app_retrieval/evaluation/ragas_factory.py`
 - `app_retrieval/evaluation/harness.py`
 - `app_retrieval/management/commands/rag_eval.py`
@@ -29,7 +30,7 @@ This ticket owns the reusable `evaluator:` config section. The config should inc
 
 - `framework: ragas`
 - `enabled`
-- `provider`, usually `azure_openai`
+- `provider`, usually `azure_openai`, or `modelhub_azure_openai` when Pratt ModelHub fronts the OpenAI-compatible deployment
 - evaluator model deployment
 - embedding deployment
 - temperature, timeout, and retry settings
@@ -51,6 +52,7 @@ It should provide:
 - `langchain_openai.OpenAIEmbeddings` for direct OpenAI embeddings when LanceDB smoke tests or non-Azure configs require it.
 - `langchain_openai.llms.AzureOpenAI` for completion-style RAGAS flows when needed.
 - `ragas.embeddings.OpenAIEmbeddings` as a direct OpenAI option for non-Azure experiments.
+- ModelHub token/header handling when `provider: modelhub_azure_openai`, using the same OpenAI-compatible model endpoint instead of a separate evaluator path.
 
 ## Dependency Setup
 
