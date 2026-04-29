@@ -9,10 +9,10 @@ Produces 2 files:
 Safe to run twice -- all writes overwrite cleanly.
 """
 import subprocess
-import sys
 from pathlib import Path
 
 BRANCH = "ngaip-364-citation-accuracy-metric"
+BASE_BRANCH = "main"
 BACKEND = Path.cwd()
 
 
@@ -21,7 +21,17 @@ def git(*args):
 
 
 def git_or(*args):
-    return subprocess.run(["git", *args]).returncode == 0
+    return subprocess.run(["git", *args], check=False).returncode == 0
+
+
+def ensure_ticket_branch() -> None:
+    """Create or switch to this ticket branch from current main."""
+    print(f"[NGAIP-364] Preparing branch: {BRANCH}")
+    git("fetch", "origin", BASE_BRANCH)
+    git("switch", BASE_BRANCH)
+    git("pull", "--ff-only", "origin", BASE_BRANCH)
+    if not git_or("switch", "-c", BRANCH):
+        git("switch", BRANCH)
 
 
 def ensure(path: Path, content: str):
@@ -42,11 +52,7 @@ def touch(path: Path):
 
 
 def main():
-    print(f"[NGAIP-364] Switching to branch {BRANCH}...")
-    git("checkout", "main")
-    git("pull")
-    if not git_or("checkout", "-b", BRANCH):
-        git("checkout", BRANCH)
+    ensure_ticket_branch()
 
     print("[NGAIP-364] Creating directories...")
     for d in [

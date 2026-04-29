@@ -3,10 +3,10 @@
 Usage: python ngaip-363-transfer.py  (run from repo root)
 """
 import subprocess
-import sys
 from pathlib import Path
 
 BRANCH = "ngaip-363-rag-evaluation-harness"
+BASE_BRANCH = "main"
 BACKEND = Path.cwd()
 
 
@@ -41,7 +41,17 @@ def git(*args):
 
 
 def git_or(*args):
-    return subprocess.run(["git", *args]).returncode == 0
+    return subprocess.run(["git", *args], check=False).returncode == 0
+
+
+def ensure_ticket_branch() -> None:
+    """Create or switch to this ticket branch from current main."""
+    print(f"[363-transfer] Preparing branch: {BRANCH}")
+    git("fetch", "origin", BASE_BRANCH)
+    git("switch", BASE_BRANCH)
+    git("pull", "--ff-only", "origin", BASE_BRANCH)
+    if not git_or("switch", "-c", BRANCH):
+        git("switch", BRANCH)
 
 
 def ensure(path: Path, content: str):
@@ -84,6 +94,7 @@ def append_if_missing(path: Path, line: str):
 
 def main():
     print(f"[363-transfer] Starting transfer into: {Path.cwd()}")
+    ensure_ticket_branch()
 
     # -------------------------------------------------------------------------
     # requirements.txt -- append only if not already present

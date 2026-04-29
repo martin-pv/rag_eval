@@ -6,13 +6,34 @@ Run from: backend/ project root on the target machine (same CWD as the .sh).
 Cross-platform: Windows cmd.exe, macOS, Linux.
 """
 import subprocess
-import sys
 from pathlib import Path
+
+
+BRANCH = "ngaip-365-context-relevancy-metric"
+BASE_BRANCH = "main"
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def git(*args: str) -> None:
+    subprocess.run(["git", *args], check=True)
+
+
+def git_or(*args: str) -> bool:
+    return subprocess.run(["git", *args], check=False).returncode == 0
+
+
+def ensure_ticket_branch() -> None:
+    """Create or switch to this ticket branch from current main."""
+    print(f"[365-transfer] Preparing branch: {BRANCH}")
+    git("fetch", "origin", BASE_BRANCH)
+    git("switch", BASE_BRANCH)
+    git("pull", "--ff-only", "origin", BASE_BRANCH)
+    if not git_or("switch", "-c", BRANCH):
+        git("switch", BRANCH)
+
 
 def ensure(path: Path, content: str) -> None:
     """Write content to path, creating parent dirs as needed. Always overwrites."""
@@ -328,6 +349,7 @@ def main() -> None:
     # inside the backend/ directory (same as manage.py lives).
     BACKEND = Path.cwd()
     print(f"[365-transfer] Starting transfer into: {BACKEND}")
+    ensure_ticket_branch()
 
     # -----------------------------------------------------------------------
     # Directories

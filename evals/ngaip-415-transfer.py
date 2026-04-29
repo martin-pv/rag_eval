@@ -11,10 +11,10 @@ Safe to run twice — all writes overwrite cleanly.
 """
 import json
 import subprocess
-import sys
 from pathlib import Path
 
 BRANCH = "ngaip-415-metrics-success-criteria"
+BASE_BRANCH = "main"
 BACKEND = Path.cwd()
 
 
@@ -23,7 +23,17 @@ def git(*args):
 
 
 def git_or(*args):
-    return subprocess.run(["git", *args]).returncode == 0
+    return subprocess.run(["git", *args], check=False).returncode == 0
+
+
+def ensure_ticket_branch() -> None:
+    """Create or switch to this ticket branch from current main."""
+    print(f"[NGAIP-415] Preparing branch: {BRANCH}")
+    git("fetch", "origin", BASE_BRANCH)
+    git("switch", BASE_BRANCH)
+    git("pull", "--ff-only", "origin", BASE_BRANCH)
+    if not git_or("switch", "-c", BRANCH):
+        git("switch", BRANCH)
 
 
 def ensure(path, content):
@@ -39,11 +49,7 @@ def touch(path):
 # ---------------------------------------------------------------------------
 # Branch setup
 # ---------------------------------------------------------------------------
-print(f"[NGAIP-415] Checking out branch {BRANCH}...")
-git("checkout", "main")
-git("pull")
-if not git_or("checkout", "-b", BRANCH):
-    git("checkout", BRANCH)
+ensure_ticket_branch()
 
 # ---------------------------------------------------------------------------
 # Directories and __init__ files
