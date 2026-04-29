@@ -1,21 +1,108 @@
 # NGAIP-363 - Build RAG Evaluation Harness
 
-## Ticket
+## Ticket Purpose
 
-NGAIP-363 builds the reusable Pratt-Backend harness that runs RAG evaluations against gold data, selected retrievers, and metric modules. It is the execution layer for NGAIP-362, NGAIP-364, NGAIP-365, NGAIP-366, and NGAIP-415.
+NGAIP-363 builds the reusable Django-native harness that runs RAG evaluations against gold data, selected retrievers, RAGAS-backed metric adapters, deterministic PrattWise checks, and report writers. It is the execution layer that the metric tickets plug into.
 
-## Solution
+## Runbook Decision
 
-This worktree creates the `app_retrieval/evaluation/` package, Django management command, retriever adapters, reporter scaffolding, metric stubs/adapters, config fixtures, and tests. The transfer script adds RAGAS dependencies and generated harness files, and now bootstraps the ticket branch from local `main-backup-for-mac-claude-repo-04-07-2026` before applying changes.
+The harness should run inside the backend process instead of requiring a web server. Normal Django tests and evaluation commands should use Django settings, models, and retrieval helpers directly. Start `runserver` only for true HTTP end-to-end tests.
 
-## Reasoning
+RAGAS is the primary semantic evaluator framework, while the harness keeps PrattWise-specific deterministic adapters for metadata that RAGAS cannot infer.
 
-The harness should run in-process instead of through HTTP. In-process execution avoids auth and networking complexity, uses the real Django models/settings, and still exercises production retrieval functions. RAGAS is the primary evaluator framework for NGAIP RAG metrics, while deterministic PrattWise-specific adapters handle metadata checks that RAGAS cannot infer.
+## Generated Files
 
-## Choices
+`ngaip-363-transfer.py` should generate or update:
 
-- Use `python manage.py rag_eval run --config ...` for Django-native execution.
-- Keep retriever selection configurable: semantic, keyword, and hybrid.
-- Emit both `report.json` and `report.csv` for machine validation and stakeholder review.
-- Gate live RAGAS/model calls through config so CI can run on redacted fixtures without credentials.
-- Keep branch setup inside `ngaip-363-transfer.py` so Windows runtime deployment starts from the backend backup branch.
+- `app_retrieval/evaluation/config.py`
+- `app_retrieval/evaluation/config/eval_config.py`
+- `app_retrieval/evaluation/ragas_factory.py`
+- `app_retrieval/evaluation/retriever.py`
+- `app_retrieval/evaluation/runner.py`
+- `app_retrieval/evaluation/reporters/`
+- `app_retrieval/evaluation/metrics/`
+- `app_retrieval/management/commands/rag_eval.py`
+- `tests/app_retrieval/test_eval_config.py`
+- `tests/app_retrieval/test_eval_runner.py`
+
+## Evaluator Config Ownership
+
+This ticket owns the reusable `evaluator:` config section. The config should include:
+
+- `framework: ragas`
+- `enabled`
+- `provider`, usually `azure_openai`
+- evaluator model deployment
+- embedding deployment
+- temperature, timeout, and retry settings
+
+`NGAIP-415` owns the report/schema contract for these fields, but `NGAIP-363` owns parsing and using them.
+
+## RAGAS Factory Ownership
+
+This ticket owns `app_retrieval/evaluation/ragas_factory.py`. It should use the backend convention:
+
+```python
+from app.settings_intellisense import settings
+```
+
+It should provide:
+
+- `AzureChatOpenAI` for RAGAS judge/generator paths.
+- `AzureOpenAIEmbeddings` for PrattWise default embeddings.
+- `langchain_openai.llms.AzureOpenAI` for completion-style RAGAS flows when needed.
+- `ragas.embeddings.OpenAIEmbeddings` as a direct OpenAI option for non-Azure experiments.
+
+## Dependency Setup
+
+The backend uses `uv sync`, so dependencies should be added through `uv` rather than only installed into an active environment:
+
+```cmd
+uv add ragas datasets
+uv add langchain langchain-core langchain-openai langchain-community
+uv add --dev pytest pytest-django pytest-asyncio
+uv sync --group dev
+```
+
+If the runtime branch needs pinned versions, use the runbook pins:
+
+```cmd
+uv add ragas>=0.2.0 datasets>=2.14.0
+uv add langchain==0.3.10 langchain-community==0.3.4 langchain-core==0.3.21 langchain-openai==0.2.11
+uv add --dev pytest==8.3.3 pytest-django==4.9.0 pytest-asyncio==0.23.8
+uv sync --group dev
+```
+
+## Harness Behavior
+
+The management command should support a flow like:
+
+```cmd
+uv run python manage.py rag_eval run --config app_retrieval/evaluation/config/rag_eval.yaml
+```
+
+Expected behavior:
+
+- Load the gold JSONL from `NGAIP-362`.
+- Select semantic, keyword, or hybrid retrieval.
+- Call real PrattWise retrieval helpers in-process.
+- Run enabled metric adapters.
+- Emit `report.json` and `report.csv`.
+- Include evaluator metadata for reproducibility.
+- Allow CI tests to run without live model credentials by mocking retrieval/model calls.
+
+## Validation
+
+Start with non-live structural tests:
+
+```cmd
+uv run pytest tests/app_retrieval/test_eval_config.py -v
+uv run pytest tests/app_retrieval/test_eval_runner.py -v
+uv run python -c "from langchain_core.documents import Document; import ragas; print('ragas/langchain OK')"
+```
+
+Live RAGAS/model tests should be opt-in and skipped unless credentials and approved corpora are present.
+
+## Branching and Commit Behavior
+
+The runtime implementation should branch from the shared `ragas-rag-evaluation` parent. The transfer script still supports repeatable local use by bootstrapping from local `main-backup-for-mac-claude-repo-04-07-2026`, switching or creating `ngaip-363-rag-evaluation-harness`, applying files, and committing locally without pushing.
