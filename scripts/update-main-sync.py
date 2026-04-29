@@ -57,10 +57,17 @@ Canonical path:
 
 Environment:
   RAG_EVAL_ROOT     Override ~/rag_eval for publish-rag-eval.
+
+Ticket scoping:
+  Add one or more ``--ticket-script PATH`` arguments to restrict diff/report/patch/lines
+  output to files written by those Python transfer scripts. This is useful for screenshots:
+
+    py -3 scripts\\update-main-sync.py lines --ticket-script evals\\ngaip-365-transfer.py --lines-out -
 """
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import re
@@ -85,6 +92,88 @@ def run_git(args: list[str], cwd: Path | None = None) -> str:
     return out
 
 
+def _path_from_join_expr(node: ast.AST) -> str | None:
+    """Extract string path from expressions like BACKEND / "a" / "b.py"."""
+    parts: list[str] = []
+    cur = node
+    while isinstance(cur, ast.BinOp) and isinstance(cur.op, ast.Div):
+        right = cur.right
+        if isinstance(right, ast.Constant) and isinstance(right.value, str):
+            parts.append(right.value)
+        else:
+            return None
+        cur = cur.left
+    if isinstance(cur, ast.Name) and cur.id in {"BACKEND", "ROOT"}:
+        return "/".join(reversed(parts))
+    return None
+
+
+def extract_ticket_script_paths(script_path: Path) -> list[str]:
+    """Return repo-relative files that a transfer script writes/touches.
+
+    The NGAIP transfer scripts are ordinary Python and usually write files via
+    helpers such as ensure(BACKEND / "...", ...), touch(...), append_if_missing(...),
+    or patch(...). This parser intentionally looks only at the first argument to
+    those helper calls, so it is safe and does not execute the transfer script.
+    """
+    tree = ast.parse(script_path.read_text(encoding="utf-8"), filename=str(script_path))
+    targets: set[str] = set()
+    assigned_paths: dict[str, str] = {}
+    writer_calls = {"ensure", "touch", "append_if_missing", "patch"}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        path = _path_from_join_expr(node.value)
+        if not path:
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                assigned_paths[target.id] = path.replace("\\", "/")
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not node.args:
+            continue
+        func = node.func
+        if isinstance(func, ast.Name):
+            func_name = func.id
+        else:
+            continue
+        if func_name not in writer_calls:
+            continue
+        first_arg = node.args[0]
+        if isinstance(first_arg, ast.Name):
+            path = assigned_paths.get(first_arg.id)
+        else:
+            path = _path_from_join_expr(first_arg)
+        if path:
+            targets.add(path.replace("\\", "/"))
+    return sorted(targets)
+
+
+def ticket_script_paths(script_paths: list[Path]) -> list[str]:
+    """Merge output paths from one or more transfer scripts."""
+    paths: set[str] = set()
+    for script_path in script_paths:
+        if not script_path.is_file():
+            raise FileNotFoundError(f"--ticket-script not found: {script_path}")
+        extracted = extract_ticket_script_paths(script_path)
+        if not extracted:
+            print(
+                f"WARNING: no writable BACKEND/ROOT paths found in {script_path}",
+                file=sys.stderr,
+            )
+        paths.update(extracted)
+    return sorted(paths)
+
+
+def _pathspec(paths: list[str] | None) -> list[str]:
+    return ["--", *paths] if paths else []
+
+
+def _scope_label(paths: list[str] | None) -> str:
+    return f" scoped to {len(paths)} ticket file(s)" if paths else ""
+
+
 def git_root(start: Path | None = None) -> Path:
     root = run_git(["rev-parse", "--show-toplevel"], cwd=start or Path.cwd())
     return Path(root)
@@ -95,23 +184,31 @@ def resolve_ref(repo: Path, ref: str) -> str:
     return run_git(["rev-parse", "--verify", ref], cwd=repo)
 
 
-def cmd_diff(from_ref: str, to_ref: str, repo: Path) -> int:
+def cmd_diff(from_ref: str, to_ref: str, repo: Path, paths: list[str] | None) -> int:
     fr = resolve_ref(repo, from_ref)
     to = resolve_ref(repo, to_ref)
-    print(f"=== Diff: {from_ref} ({fr[:12]}…) → {to_ref} ({to[:12]}…) ===\n")
+    print(
+        f"=== Diff: {from_ref} ({fr[:12]}…) → {to_ref} ({to[:12]}…)"
+        f"{_scope_label(paths)} ===\n"
+    )
     print("=== Changed files ===")
-    print(run_git(["diff", "--name-status", from_ref, to_ref], cwd=repo))
+    print(run_git(["diff", "--name-status", from_ref, to_ref, *_pathspec(paths)], cwd=repo))
     print()
     print(f"=== Commits on {to_ref} not in {from_ref} ({from_ref}..{to_ref}) ===")
     print(run_git(["log", "--oneline", f"{from_ref}..{to_ref}"], cwd=repo) or "(none)")
     print()
     print("=== Stats ===")
-    print(run_git(["diff", "--stat", from_ref, to_ref], cwd=repo))
+    print(run_git(["diff", "--stat", from_ref, to_ref, *_pathspec(paths)], cwd=repo))
     return 0
 
 
 def cmd_patch(
-    from_ref: str, to_ref: str, repo: Path, out_path: Path, unified: int
+    from_ref: str,
+    to_ref: str,
+    repo: Path,
+    out_path: Path,
+    unified: int,
+    paths: list[str] | None,
 ) -> int:
     """Write unified diff for changed lines only when unified=0 (no surrounding context)."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -126,6 +223,7 @@ def cmd_patch(
                 "--no-ext-diff",
                 from_ref,
                 to_ref,
+                *_pathspec(paths),
             ],
             cwd=repo,
             stdout=f,
@@ -133,11 +231,11 @@ def cmd_patch(
     if r.returncode != 0:
         print("ERROR: git diff failed (see messages above).", file=sys.stderr)
         return r.returncode
-        print(
-            f"Unified diff written to {out_path.resolve()} (-U{unified}; unchanged "
-            f"context lines omitted when 0)\n"
-            f"  ({from_ref} {fr[:12]}… → {to_ref} {to[:12]}…)"
-        )
+    print(
+        f"Unified diff written to {out_path.resolve()} (-U{unified}; unchanged "
+        f"context lines omitted when 0;{_scope_label(paths)})\n"
+        f"  ({from_ref} {fr[:12]}… → {to_ref} {to[:12]}…)"
+    )
     return 0
 
 
@@ -217,6 +315,7 @@ def cmd_lines(
     repo: Path,
     out_target: Path | str | None,
     unified: int,
+    paths: list[str] | None,
 ) -> int:
     diff_text = subprocess.check_output(
         [
@@ -227,6 +326,7 @@ def cmd_lines(
             "--no-ext-diff",
             from_ref,
             to_ref,
+            *_pathspec(paths),
         ],
         cwd=repo,
         text=True,
@@ -262,10 +362,16 @@ def parse_name_status(changed_raw: str) -> list[dict]:
     return changes
 
 
-def cmd_report(from_ref: str, to_ref: str, repo: Path, out_path: Path) -> int:
+def cmd_report(
+    from_ref: str,
+    to_ref: str,
+    repo: Path,
+    out_path: Path,
+    paths: list[str] | None,
+) -> int:
     from_sha = resolve_ref(repo, from_ref)
     to_sha = resolve_ref(repo, to_ref)
-    changed_raw = run_git(["diff", "--name-status", from_ref, to_ref], cwd=repo)
+    changed_raw = run_git(["diff", "--name-status", from_ref, to_ref, *_pathspec(paths)], cwd=repo)
     changes = parse_name_status(changed_raw)
 
     commits_raw = run_git(["log", "--oneline", f"{from_ref}..{to_ref}"], cwd=repo)
@@ -287,6 +393,7 @@ def cmd_report(from_ref: str, to_ref: str, repo: Path, out_path: Path) -> int:
         "commits_from_to": len(commits),
         "commits": commits,
         "changed_files": changes,
+        "path_filter": paths or [],
         # Legacy keys for older consumers
         "snapshot_commit": from_sha,
         "current_head": to_sha,
@@ -296,7 +403,7 @@ def cmd_report(from_ref: str, to_ref: str, repo: Path, out_path: Path) -> int:
     out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(
         f"Report written to {out_path} — {len(changes)} file changes, "
-        f"{len(commits)} commits ({from_ref} → {to_ref})"
+        f"{len(commits)} commits ({from_ref} → {to_ref}){_scope_label(paths)}"
     )
     return 0
 
@@ -340,19 +447,20 @@ def cmd_full(
     with_lines: bool,
     lines_out: str,
     unified: int,
+    paths: list[str] | None,
 ) -> int:
-    cmd_diff(from_ref, to_ref, repo)
+    cmd_diff(from_ref, to_ref, repo, paths)
     print()
-    cmd_report(from_ref, to_ref, repo, report_path)
+    cmd_report(from_ref, to_ref, repo, report_path, paths)
     print()
     cmd_show(report_path)
     if not skip_patch:
         print()
-        cmd_patch(from_ref, to_ref, repo, patch_path, unified)
+        cmd_patch(from_ref, to_ref, repo, patch_path, unified, paths)
     if with_lines:
         print()
         lo = None if lines_out == "-" else Path(lines_out)
-        cmd_lines(from_ref, to_ref, repo, lo, unified)
+        cmd_lines(from_ref, to_ref, repo, lo, unified, paths)
     return 0
 
 
@@ -547,6 +655,22 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="With 'full': also write compact -N:/+N: listing (--lines-out, --unified)",
     )
+    parser.add_argument(
+        "--ticket-script",
+        type=Path,
+        action="append",
+        default=[],
+        metavar="PATH",
+        help=(
+            "Restrict output to files written/touched by a Python transfer script. "
+            "Repeat for multiple tickets."
+        ),
+    )
+    parser.add_argument(
+        "--print-ticket-paths",
+        action="store_true",
+        help="Print files extracted from --ticket-script before running the command.",
+    )
 
     args = parser.parse_args(argv)
 
@@ -583,16 +707,26 @@ def main(argv: list[str]) -> int:
 
     report_path = args.report.resolve()
     patch_path = args.patch_out.resolve()
+    try:
+        scoped_paths = ticket_script_paths(args.ticket_script) if args.ticket_script else []
+    except FileNotFoundError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    if args.print_ticket_paths and scoped_paths:
+        print("=== Ticket-scoped files ===")
+        for p in scoped_paths:
+            print(p)
+        print()
 
     if args.command == "diff":
-        return cmd_diff(from_ref, to_ref, repo)
+        return cmd_diff(from_ref, to_ref, repo, scoped_paths)
     if args.command == "lines":
         lo = None if args.lines_out == "-" else Path(args.lines_out)
-        return cmd_lines(from_ref, to_ref, repo, lo, args.unified)
+        return cmd_lines(from_ref, to_ref, repo, lo, args.unified, scoped_paths)
     if args.command == "patch":
-        return cmd_patch(from_ref, to_ref, repo, patch_path, args.unified)
+        return cmd_patch(from_ref, to_ref, repo, patch_path, args.unified, scoped_paths)
     if args.command == "report":
-        return cmd_report(from_ref, to_ref, repo, report_path)
+        return cmd_report(from_ref, to_ref, repo, report_path, scoped_paths)
     if args.command == "show":
         return cmd_show(report_path)
     if args.command == "full":
@@ -606,6 +740,7 @@ def main(argv: list[str]) -> int:
             args.with_lines,
             args.lines_out,
             args.unified,
+            scoped_paths,
         )
 
     return 0
