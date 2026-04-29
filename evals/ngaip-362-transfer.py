@@ -118,7 +118,13 @@ def commit_transfer_changes() -> None:
 
     print(f"[transfer] Staging {len(existing_paths)} generated file(s) for local commit...")
     if existing_paths:
-        git("add", "--", *existing_paths)
+        normal_paths = [p for p in existing_paths if not p.startswith("tests/")]
+        test_paths = [p for p in existing_paths if p.startswith("tests/")]
+        if normal_paths:
+            git("add", "--", *normal_paths)
+        if test_paths:
+            print("[transfer] Force-adding generated test files...")
+            git("add", "-f", "--", *test_paths)
     staged = subprocess.run(
         ["git", "diff", "--cached", "--quiet", "--", *commit_paths],
         cwd=repo_root,
