@@ -543,6 +543,7 @@ import os
 
 from app.settings_intellisense import settings
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
+from langchain_openai.llms import AzureOpenAI
 
 from app_retrieval.evaluation.config.eval_config import RagasEvaluatorConfig
 
@@ -572,6 +573,21 @@ def build_ragas_langchain_models(config: RagasEvaluatorConfig):
         api_version=getattr(settings, "AZURE_OPENAI_API_VERSION", os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")),
     )
     return llm, embeddings
+
+
+def build_ragas_azure_completion_llm(config: RagasEvaluatorConfig) -> AzureOpenAI:
+    """Optional completion-style Azure OpenAI LLM for RAGAS paths that require it."""
+    if not config.model:
+        raise ValueError("RAGAS evaluator model deployment is required")
+    return AzureOpenAI(
+        azure_deployment=config.model,
+        api_key=getattr(settings, "AZURE_OPENAI_API_KEY", os.environ.get("AZURE_OPENAI_API_KEY")),
+        azure_endpoint=getattr(settings, "AZURE_OPENAI_ENDPOINT", os.environ.get("AZURE_OPENAI_ENDPOINT")),
+        api_version=getattr(settings, "AZURE_OPENAI_API_VERSION", os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")),
+        temperature=config.temperature,
+        timeout=config.timeout_seconds,
+        max_retries=config.max_retries,
+    )
 ```
 
 The same factory can be used by:
@@ -580,6 +596,13 @@ The same factory can be used by:
 - `NGAIP-365` context metrics.
 - `NGAIP-364` faithfulness/grounding.
 - `NGAIP-366` answer metrics.
+
+Import note:
+
+- Use `from langchain_openai.llms import AzureOpenAI` when a RAGAS path needs the completion-style Azure OpenAI LLM.
+- The class name is `AzureOpenAI`, with capital `A`, `O`, `AI`.
+- Use `AzureChatOpenAI` when the RAGAS metric or judge path expects a chat model.
+- Keep both options centralized in `app_retrieval/evaluation/ragas_factory.py`.
 
 ### Direct RAGAS OpenAI Embeddings Option
 
