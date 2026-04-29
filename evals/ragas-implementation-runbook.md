@@ -503,6 +503,24 @@ The same factory can be used by:
 - `NGAIP-364` faithfulness/grounding.
 - `NGAIP-366` answer metrics.
 
+### Direct RAGAS OpenAI Embeddings Option
+
+If the runtime configuration uses a direct OpenAI client instead of Azure OpenAI through LangChain, document and isolate the RAGAS-native embeddings import in the same `NGAIP-363` factory layer:
+
+```python
+from openai import OpenAI
+from ragas.embeddings import OpenAIEmbeddings
+
+
+def build_ragas_openai_embeddings(api_key: str | None = None) -> OpenAIEmbeddings:
+    client = OpenAI(api_key=api_key)
+    return OpenAIEmbeddings(client=client)
+```
+
+Use this only when the evaluator provider is configured as direct OpenAI. For PrattWise/Azure OpenAI, prefer the `AzureOpenAIEmbeddings` plus LangChain path above, because it matches the existing backend dependencies and Azure deployment model.
+
+Do not scatter `from ragas.embeddings import OpenAIEmbeddings` through metric files. Keep it in `app_retrieval/evaluation/ragas_factory.py` so `NGAIP-365`, `NGAIP-364`, and `NGAIP-366` consume one shared embeddings object.
+
 ## Can RAGAS Evaluations Run as Django Tests?
 
 Yes, but split them into two categories.
