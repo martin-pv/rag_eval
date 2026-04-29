@@ -521,6 +521,278 @@ Use this only when the evaluator provider is configured as direct OpenAI. For Pr
 
 Do not scatter `from ragas.embeddings import OpenAIEmbeddings` through metric files. Keep it in `app_retrieval/evaluation/ragas_factory.py` so `NGAIP-365`, `NGAIP-364`, and `NGAIP-366` consume one shared embeddings object.
 
+## Teammate Practical RAGAS Guide, Adapted for PrattWise
+
+This section incorporates the practical RAGAS implementation guide being used by the teammate. Treat it as the developer-facing mental model for the work, while the ticket sections below remain the implementation contract.
+
+Ticket mapping:
+
+- Dependency install: parent `ragas-rag-evaluation` branch and `NGAIP-363`.
+- Minimal testable RAG pipeline: `NGAIP-363`.
+- Existing LanceDB retrieval integration: `NGAIP-363`.
+- Evaluation dataset shape: `NGAIP-362` plus `NGAIP-363` adapter.
+- RAGAS evaluation call: `NGAIP-365`, `NGAIP-364`, and `NGAIP-366`.
+- Score interpretation and thresholds: `NGAIP-415`.
+
+### Core Metrics to Implement
+
+RAGAS evaluates the RAG pipeline across the same dimensions called out in the teammate guide:
+
+| Metric | What it measures | Required fields |
+|---|---|---|
+| `faithfulness` / `ragas_faithfulness` | Whether the answer is grounded in retrieved context | question, answer, contexts |
+| `answer_relevancy` / `ragas_answer_relevancy` | Whether the answer addresses the question | question, answer |
+| `context_precision` / `ragas_context_precision` | Whether retrieved chunks are actually relevant | question, contexts, reference/gold answer |
+| `context_recall` / `ragas_context_recall` | Whether retrieval captured all needed information | question, contexts, reference/gold answer |
+
+The exact RAGAS field names vary by version. Older examples often use:
+
+```python
+{
+    "question": "...",
+    "answer": "...",
+    "contexts": ["chunk 1", "chunk 2"],
+    "ground_truth": "...",
+}
+```
+
+Newer RAGAS versions may use names like:
+
+```python
+{
+    "user_input": "...",
+    "response": "...",
+    "retrieved_contexts": ["chunk 1", "chunk 2"],
+    "reference": "...",
+}
+```
+
+Do not spread this version-specific mapping through the codebase. `NGAIP-363` should centralize it in the RAGAS adapter so the ticket metric modules can pass normalized PrattWise objects.
+
+### Minimal Testable RAG Pipeline
+
+The teammate guide starts with a minimal local RAG pipeline. That is useful for proving RAGAS wiring before connecting to PrattWise retrieval.
+
+Reference-only example:
+
+```python
+from langchain.chains import RetrievalQA
+from langchain.schema import Document
+from langchain.vectorstores import FAISS
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+
+
+def build_minimal_rag_pipeline(docs: list[str]):
+    documents = [Document(page_content=doc) for doc in docs]
+    embeddings = OpenAIEmbeddings()
+    vectorstore = FAISS.from_documents(documents, embeddings)
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+
+    llm = ChatOpenAI(model="gpt-4o", temperature=0)
+    return RetrievalQA.from_chain_type(
+        llm=llm,
+        retriever=retriever,
+        return_source_documents=True,
+    )
+```
+
+For this program, keep this as a local smoke-test pattern only. The real implementation should use PrattWise retriever adapters from `NGAIP-363`, not a new FAISS store.
+
+### Existing LanceDB Retriever Pattern
+
+The teammate guide correctly notes that RAGAS does not care which vector store produced the contexts. It only needs the final RAG outputs:
+
+- question
+- answer
+- retrieved contexts
+- reference/gold answer
+
+If testing directly against an existing LanceDB table, the generic retriever shape is:
+
+```python
+import lancedb
+from langchain.schema import Document
+from langchain.retrievers import BaseRetriever
+from langchain_openai import OpenAIEmbeddings
+from pydantic import Field
+
+
+class LanceDBRetriever(BaseRetriever):
+    table_name: str
+    k: int = 3
+    embeddings: OpenAIEmbeddings = Field(default_factory=OpenAIEmbeddings)
+    db_path: str = "./lancedb"
+
+    def _get_relevant_documents(self, query: str) -> list[Document]:
+        db = lancedb.connect(self.db_path)
+        table = db.open_table(self.table_name)
+
+        query_embedding = self.embeddings.embed_query(query)
+        results = table.search(query_embedding).limit(self.k).to_list()
+
+        return [
+            Document(
+                page_content=row["text"],
+                metadata={"source": row.get("source", "")},
+            )
+            for row in results
+        ]
+
+    async def _aget_relevant_documents(self, query: str) -> list[Document]:
+        return self._get_relevant_documents(query)
+```
+
+PrattWise adaptation:
+
+- Do not assume the LanceDB text field is named `text`; inspect the table schema and map the correct field, such as `content`, `chunk`, or `body`.
+- Use the same embedding model/deployment that populated the LanceDB table. Mismatched embeddings will make retrieval quality and RAGAS scores misleading.
+- Prefer the existing PrattWise retrieval helpers and adapters in `NGAIP-363` over raw LanceDB access unless the ticket explicitly needs a low-level LanceDB smoke test.
+- Preserve source metadata such as `asset_id`, page, section, and chunk id for `NGAIP-364` citation checks.
+
+Schema inspection command:
+
+```python
+import lancedb
+
+db = lancedb.connect("./your_lancedb_path")
+table = db.open_table("your_table_name")
+print(table.schema)
+```
+
+### Evaluation Dataset Construction
+
+RAGAS expects the evaluation rows to combine the gold input with the pipeline output.
+
+Gold rows from `NGAIP-362` provide:
+
+```python
+eval_samples = [
+    {
+        "question": "What is the return policy?",
+        "ground_truth": "Items can be returned within 30 days with a receipt.",
+    },
+    {
+        "question": "How do I reset my password?",
+        "ground_truth": "Go to the login page and click Forgot Password.",
+    },
+]
+```
+
+After the RAG pipeline runs, `NGAIP-363` should collect:
+
+```python
+def collect_rag_outputs(qa_chain, eval_samples: list[dict]) -> list[dict]:
+    rows: list[dict] = []
+    for sample in eval_samples:
+        response = qa_chain(sample["question"])
+        rows.append(
+            {
+                "question": sample["question"],
+                "answer": response["result"],
+                "contexts": [
+                    doc.page_content
+                    for doc in response["source_documents"]
+                ],
+                "ground_truth": sample["ground_truth"],
+            }
+        )
+    return rows
+```
+
+PrattWise adaptation:
+
+- The actual collector should work with PrattWise retriever and answer outputs, not necessarily LangChain `RetrievalQA`.
+- If the backend returns source dictionaries instead of `Document` objects, normalize them into strings for RAGAS contexts and preserve metadata for deterministic citation metrics.
+- The collector belongs in `NGAIP-363`.
+- The final metric field names belong to `NGAIP-415`.
+
+### Running RAGAS Evaluation
+
+The teammate guide uses the standard RAGAS evaluation shape:
+
+```python
+from datasets import Dataset
+from ragas import evaluate
+from ragas.metrics import (
+    faithfulness,
+    answer_relevancy,
+    context_precision,
+    context_recall,
+)
+
+
+def run_evaluation(rag_outputs: list[dict]):
+    dataset = Dataset.from_list(rag_outputs)
+    results = evaluate(
+        dataset=dataset,
+        metrics=[
+            faithfulness,
+            answer_relevancy,
+            context_precision,
+            context_recall,
+        ],
+    )
+    df = results.to_pandas()
+    df.to_csv("ragas_results.csv", index=False)
+    return results
+```
+
+PrattWise adaptation:
+
+- `NGAIP-365` should own context precision/recall output.
+- `NGAIP-364` should own faithfulness/grounding plus deterministic citation metadata.
+- `NGAIP-366` should own answer correctness/relevancy.
+- Do not write only `ragas_results.csv`; the harness should emit `report.json` and `report.csv`.
+- Include RAGAS result columns inside the `scores` dict for each question.
+
+### Non-OpenAI Judge Option
+
+The teammate guide shows that RAGAS can use a non-OpenAI judge through wrappers:
+
+```python
+from langchain_anthropic import ChatAnthropic
+from ragas.llms import LangchainLLMWrapper
+
+
+judge_llm = LangchainLLMWrapper(ChatAnthropic(model="claude-opus-4-5"))
+
+results = evaluate(
+    dataset=dataset,
+    metrics=[faithfulness, answer_relevancy],
+    llm=judge_llm,
+)
+```
+
+For PrattWise, this should be a config-driven option in `NGAIP-363`, not hardcoded in metric files. Azure OpenAI remains the default unless the runtime environment is explicitly configured for another provider.
+
+### Score Interpretation
+
+Use these bands as initial review guidance, not final acceptance thresholds:
+
+| Score range | Interpretation |
+|---|---|
+| `0.9 - 1.0` | Excellent, likely production-ready |
+| `0.7 - 0.9` | Good, may need minor tuning |
+| `0.5 - 0.7` | Fair, revisit chunking, retrieval, prompts, or references |
+| `< 0.5` | Poor, likely fundamental retrieval or grounding issue |
+
+Where to look when scores are low:
+
+- Low faithfulness: answer may be hallucinated or unsupported; tighten system prompt and grounding.
+- Low answer relevancy: prompt may be vague, retrieval may be noisy, or answer formatting may be off.
+- Low context precision: reduce `k`, improve reranking, filter noisy chunks, or improve source selection.
+- Low context recall: improve chunking strategy, embedding model alignment, or query expansion.
+
+`NGAIP-415` must calibrate real pass/fail thresholds on the `NGAIP-362` gold set before these become official criteria.
+
+### Key Tips From the Teammate Guide
+
+- Start small: 20-50 hand-curated QA pairs are enough to get meaningful signal.
+- Automate growth carefully: use the RAGAS testset generator to draft candidate questions, then review before promoting to gold.
+- Track over time: store `report.json`, `report.csv`, evaluator metadata, and git commit ids so improvements can be compared.
+- Do not rely on a single metric: optimizing one RAGAS metric in isolation can hurt the others.
+- Always preserve provenance: source ids and chunk metadata are required for PrattWise citation checks.
+
 ## Can RAGAS Evaluations Run as Django Tests?
 
 Yes, but split them into two categories.
