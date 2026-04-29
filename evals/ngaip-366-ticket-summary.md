@@ -18,4 +18,4 @@ Answer quality is too semantic for token overlap or citation metadata alone. RAG
 - Preserve human annotation exports for dual-rater calibration.
 - Keep response accuracy threshold sign-off tied to NGAIP-415 and the NGAIP-362 calibration corpus.
 - Record judge/evaluator metadata in report output for reproducibility.
-- Keep branch setup inside `ngaip-366-transfer.py` so Windows runtime deployment starts from `main-backup-for-mac-claude-repo-04-07-2026`.
+- Keep branch setup inside `ngaip-366-transfer.py` so Windows runtime deployment starts from local `main-backup-for-mac-claude-repo-04-07-2026`.

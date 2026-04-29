@@ -27,13 +27,12 @@ def git_or(*args):
 
 
 def ensure_ticket_branch() -> None:
-    """Create or switch to this ticket branch from the Windows backend backup branch."""
-    print(f"[412-transfer] Preparing branch: {BRANCH}")
-    git("fetch", "origin", BASE_BRANCH)
+    """Create or switch to this ticket branch from the local backup branch."""
+    print(f"[412-transfer] Preparing branch: {BRANCH} from local {BASE_BRANCH}")
+    if git_or("switch", BRANCH):
+        return
     git("switch", BASE_BRANCH)
-    git("pull", "--ff-only", "origin", BASE_BRANCH)
-    if not git_or("switch", "-c", BRANCH):
-        git("switch", BRANCH)
+    git("switch", "-c", BRANCH)
 
 
 def ensure(path, content):

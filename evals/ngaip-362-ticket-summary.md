@@ -6,7 +6,7 @@ NGAIP-362 creates the evaluation corpus contract for the RAG evaluation program.
 
 ## Solution
 
-This worktree adds the evaluation gold-row schema, a redacted CI fixture, a schema document for annotators, a JSONL loader, and focused pytest coverage. The transfer script writes those files into the runtime backend under `app_retrieval/evaluation/` and now bootstraps the ticket branch from `main-backup-for-mac-claude-repo-04-07-2026` before applying generated files.
+This worktree adds the evaluation gold-row schema, a redacted CI fixture, a schema document for annotators, a JSONL loader, and focused pytest coverage. The transfer script writes those files into the runtime backend under `app_retrieval/evaluation/` and now bootstraps the ticket branch from local `main-backup-for-mac-claude-repo-04-07-2026` before applying generated files.
 
 ## Reasoning
 
@@ -17,4 +17,4 @@ The RAGAS-based evaluator still needs a clean reference dataset. Keeping the gol
 - Use JSONL for CI because it preserves arrays and structured fields without CSV parsing ambiguity.
 - Keep source identity fields explicit: `gold_doc_id`, optional char spans, and optional chunk ids.
 - Treat schema validation errors as `ValueError` with row context so transfer/runtime failures are actionable.
-- Keep branch setup inside `ngaip-362-transfer.py` so the Windows runtime machine does not need manual git prep.
+- Keep branch setup inside `ngaip-362-transfer.py` so the Windows runtime machine does not need manual ticket-branch prep.

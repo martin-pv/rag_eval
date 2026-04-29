@@ -18,4 +18,4 @@ A versioned metrics contract keeps the harness, reports, and stakeholder review 
 - Keep deterministic adapters for citation metadata and token-overlap diagnostics.
 - Store evaluator metadata in report output: provider, deployment/model, temperature, and spec version.
 - Leave numeric thresholds in review until calibration on the NGAIP-362 corpus.
-- Keep branch setup inside `ngaip-415-transfer.py` so Windows runtime deployment starts from `main-backup-for-mac-claude-repo-04-07-2026`.
+- Keep branch setup inside `ngaip-415-transfer.py` so Windows runtime deployment starts from local `main-backup-for-mac-claude-repo-04-07-2026`.

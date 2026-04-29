@@ -6,7 +6,7 @@ NGAIP-363 builds the reusable Pratt-Backend harness that runs RAG evaluations ag
 
 ## Solution
 
-This worktree creates the `app_retrieval/evaluation/` package, Django management command, retriever adapters, reporter scaffolding, metric stubs/adapters, config fixtures, and tests. The transfer script adds RAGAS dependencies and generated harness files, and now bootstraps the ticket branch from `main-backup-for-mac-claude-repo-04-07-2026` before applying changes.
+This worktree creates the `app_retrieval/evaluation/` package, Django management command, retriever adapters, reporter scaffolding, metric stubs/adapters, config fixtures, and tests. The transfer script adds RAGAS dependencies and generated harness files, and now bootstraps the ticket branch from local `main-backup-for-mac-claude-repo-04-07-2026` before applying changes.
 
 ## Reasoning
 

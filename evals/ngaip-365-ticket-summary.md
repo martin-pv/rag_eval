@@ -18,4 +18,4 @@ Token overlap is cheap and deterministic, but it misses semantic matches and can
 - Keep `token_overlap_at_k` or equivalent as a secondary diagnostic field.
 - Record evaluator provider/model/deployment metadata in reports for reproducibility.
 - Avoid front-end dependencies; retrieve through Pratt-Backend harness adapters.
-- Keep branch setup inside `ngaip-365-transfer.py` so Windows runtime deployment starts from `main-backup-for-mac-claude-repo-04-07-2026`.
+- Keep branch setup inside `ngaip-365-transfer.py` so Windows runtime deployment starts from local `main-backup-for-mac-claude-repo-04-07-2026`.

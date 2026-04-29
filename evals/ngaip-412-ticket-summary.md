@@ -18,4 +18,4 @@ The spike reduces risk before building the full harness. It gives the team a con
 - Document design decisions in `docs/rag_eval_adr.md`.
 - Use synthetic data so the POC can run without controlled corpus access.
 - Carry forward only the useful testing/reporting patterns into NGAIP-363.
-- Keep branch setup inside `ngaip-412-transfer.py` so Windows runtime deployment starts from `main-backup-for-mac-claude-repo-04-07-2026`.
+- Keep branch setup inside `ngaip-412-transfer.py` so Windows runtime deployment starts from local `main-backup-for-mac-claude-repo-04-07-2026`.
