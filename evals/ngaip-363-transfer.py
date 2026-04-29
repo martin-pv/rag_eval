@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 BRANCH = "ngaip-363-rag-evaluation-harness"
+COMMIT_MESSAGE = "NGAIP-363: Apply transfer script changes"
 BASE_BRANCH = "main-backup-for-mac-claude-repo-04-07-2026"
 BACKEND = Path.cwd()
 
@@ -45,15 +46,24 @@ def git_or(*args):
     return subprocess.run(["git", *args], check=False).returncode == 0
 
 
+def current_branch() -> str:
+    return subprocess.check_output(
+        ["git", "branch", "--show-current"],
+        text=True,
+    ).strip()
+
+
 def ensure_ticket_branch() -> None:
-    """Create or switch to this ticket branch from the local backup branch."""
+    """Ensure this transfer runs on its local ticket branch; never push/publish."""
     print(f"[363-transfer] Preparing branch: {BRANCH} from local {BASE_BRANCH}")
-    if git_or("switch", BRANCH):
+    if current_branch() == BRANCH:
+        print(f"[363-transfer] Already on ticket branch: {BRANCH}")
+        return
+    if git_or("rev-parse", "--verify", f"refs/heads/{BRANCH}"):
+        git("switch", BRANCH)
         return
     git("switch", BASE_BRANCH)
     git("switch", "-c", BRANCH)
-
-
 
 # ---------------------------------------------------------------------------
 # Local commit helper (no push/publish)
@@ -115,12 +125,13 @@ def _transfer_paths_from_this_script() -> list[str]:
 
 
 def commit_transfer_changes() -> None:
+    repo_root = globals().get("BACKEND", globals().get("ROOT", Path.cwd()))
     paths = _transfer_paths_from_this_script()
     if not paths:
         print("[transfer] No generated paths found to commit.")
         return
 
-    existing_paths = [p for p in paths if (BACKEND / p).exists()]
+    existing_paths = [p for p in paths if (repo_root / p).exists()]
     if not existing_paths:
         print("[transfer] No generated files exist to commit.")
         return
@@ -129,16 +140,14 @@ def commit_transfer_changes() -> None:
     git("add", "--", *existing_paths)
     staged = subprocess.run(
         ["git", "diff", "--cached", "--quiet", "--", *existing_paths],
-        cwd=BACKEND,
+        cwd=repo_root,
         check=False,
     )
     if staged.returncode == 0:
         print("[transfer] No changes to commit.")
         return
-
-    message = f"{BRANCH}: Apply transfer script changes"
-    git("commit", "-m", message, "--", *existing_paths)
-    print(f"[transfer] Created local commit: {message}")
+    git("commit", "-m", COMMIT_MESSAGE, "--", *existing_paths)
+    print(f"[transfer] Created local commit: {COMMIT_MESSAGE}")
 
 def ensure(path: Path, content: str):
     """Write file, creating parent dirs. Idempotent -- overwrites if exists."""
