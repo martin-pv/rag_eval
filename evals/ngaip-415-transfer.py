@@ -507,6 +507,31 @@ schema = {
                 "Must match the checked-in spec version."
             ),
         },
+        "evaluator": {
+            "type": "object",
+            "description": "RAGAS evaluator metadata used for this run.",
+            "properties": {
+                "framework": {"type": "string"},
+                "provider": {"type": "string"},
+                "model": {"type": "string"},
+                "embeddings": {"type": "string"},
+                "temperature": {"type": "number"},
+                "ragas_version": {"type": "string"},
+            },
+            "additionalProperties": True,
+        },
+        "testset_provenance": {
+            "type": "object",
+            "description": "How gold/candidate rows were generated and reviewed.",
+            "properties": {
+                "generator": {"type": "string"},
+                "candidate_file": {"type": "string"},
+                "gold_file": {"type": "string"},
+                "review_required": {"type": "boolean"},
+                "uses_knowledge_graph_context": {"type": "boolean"},
+            },
+            "additionalProperties": True,
+        },
         "config": {
             "type": "object",
             "description": (
@@ -559,6 +584,18 @@ schema = {
                         "description": (
                             "Total cost for this question (input + output + embed + rerank)."
                         ),
+                    },
+                    "content_type": {
+                        "type": "string",
+                        "description": "Source modality tag such as text, table, ocr, graph, or mixed.",
+                    },
+                    "source_metadata": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                    },
+                    "knowledge_graph_context": {
+                        "type": ["array", "null"],
+                        "items": {"type": "string"},
                     },
                     "scores": {
                         "type": "object",
@@ -1020,6 +1057,26 @@ def test_all_expected_metrics_present(metrics):
     actual_ids = {m["id"] for m in metrics}
     missing = EXPECTED_METRIC_IDS - actual_ids
     assert not missing, f"Expected metrics missing from spec: {missing}"
+
+
+# ---------------------------------------------------------------------------
+# RAGAS evaluator and generated testset provenance in report schema
+# ---------------------------------------------------------------------------
+
+def test_eval_report_schema_allows_evaluator_metadata():
+    schema_path = pathlib.Path(__file__).parents[3] / "app_retrieval/evaluation/config/eval_report.schema.json"
+    schema = json.loads(schema_path.read_text())
+    assert "evaluator" in schema["properties"]
+    assert "ragas_version" in schema["properties"]["evaluator"]["properties"]
+
+
+def test_eval_report_schema_allows_testset_and_graph_provenance():
+    schema_path = pathlib.Path(__file__).parents[3] / "app_retrieval/evaluation/config/eval_report.schema.json"
+    schema = json.loads(schema_path.read_text())
+    assert "testset_provenance" in schema["properties"]
+    result_props = schema["properties"]["results"]["items"]["properties"]
+    assert "knowledge_graph_context" in result_props
+    assert "source_metadata" in result_props
 
 
 # ---------------------------------------------------------------------------

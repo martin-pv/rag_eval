@@ -198,6 +198,11 @@ def main():
     req = BACKEND / "requirements.txt"
     append_if_missing(req, "ragas>=0.2.0")
     append_if_missing(req, "datasets>=2.14.0")
+    append_if_missing(req, "openai>=1.109.1")
+    append_if_missing(req, "langchain-openai==0.2.11")
+    append_if_missing(req, "langchain-core==0.3.21")
+    append_if_missing(req, "langchain-community==0.3.4")
+    append_if_missing(req, "langchain==0.3.10")
 
     # -------------------------------------------------------------------------
     # Create directories (mkdir -p equivalent -- Path.mkdir handles this)
@@ -262,6 +267,30 @@ class EvalConfig(BaseModel):
             )
         return self
 """,
+    )
+
+    # -------------------------------------------------------------------------
+    # evaluation/config/eval_config.py
+    # -------------------------------------------------------------------------
+    ensure(
+        BACKEND / "app_retrieval" / "evaluation" / "config" / "eval_config.py",
+        'from __future__ import annotations\n\nfrom dataclasses import dataclass\nfrom pathlib import Path\nfrom typing import Any\n\nimport yaml\n\n\n@dataclass(frozen=True)\nclass RagasEvaluatorConfig:\n    framework: str = "ragas"\n    enabled: bool = False\n    provider: str = "azure_openai"\n    model: str | None = None\n    embeddings: str | None = None\n    temperature: float = 0\n    timeout_seconds: int = 120\n    max_retries: int = 2\n\n\n@dataclass(frozen=True)\nclass EvalConfig:\n    metrics_spec_version: str\n    evaluator: RagasEvaluatorConfig\n    raw: dict[str, Any]\n\n\ndef load_eval_config(path: Path) -> EvalConfig:\n    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}\n    evaluator_data = data.get("evaluator", {})\n    evaluator = RagasEvaluatorConfig(**evaluator_data)\n    if evaluator.framework != "ragas":\n        raise ValueError(f"Unsupported evaluator framework: {evaluator.framework}")\n    return EvalConfig(metrics_spec_version=str(data.get("metrics_spec_version", "unknown")), evaluator=evaluator, raw=data)\n',
+    )
+
+    # -------------------------------------------------------------------------
+    # evaluation/ragas_factory.py
+    # -------------------------------------------------------------------------
+    ensure(
+        BACKEND / "app_retrieval" / "evaluation" / "ragas_factory.py",
+        'from __future__ import annotations\n\nimport os\n\nfrom app.settings_intellisense import settings\nfrom langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings\nfrom langchain_openai.llms import AzureOpenAI\nfrom openai import OpenAI\nfrom ragas.embeddings import OpenAIEmbeddings\n\nfrom app_retrieval.evaluation.config.eval_config import RagasEvaluatorConfig\n\n\ndef _setting(name: str, default: str | None = None) -> str | None:\n    return getattr(settings, name, os.environ.get(name, default))\n\n\ndef build_ragas_langchain_models(config: RagasEvaluatorConfig):\n    """Build Azure LangChain models for RAGAS metrics and testset generation."""\n    if config.provider != "azure_openai":\n        raise ValueError(f"Unsupported RAGAS provider: {config.provider}")\n    if not config.model:\n        raise ValueError("RAGAS evaluator model deployment is required")\n    if not config.embeddings:\n        raise ValueError("RAGAS embedding deployment is required")\n    llm = AzureChatOpenAI(\n        azure_deployment=config.model,\n        api_key=_setting("AZURE_OPENAI_API_KEY"),\n        azure_endpoint=_setting("AZURE_OPENAI_ENDPOINT"),\n        api_version=_setting("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),\n        temperature=config.temperature,\n        timeout=config.timeout_seconds,\n        max_retries=config.max_retries,\n    )\n    embeddings = AzureOpenAIEmbeddings(\n        azure_deployment=config.embeddings,\n        api_key=_setting("AZURE_OPENAI_API_KEY"),\n        azure_endpoint=_setting("AZURE_OPENAI_ENDPOINT"),\n        api_version=_setting("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),\n    )\n    return llm, embeddings\n\n\ndef build_ragas_azure_completion_llm(config: RagasEvaluatorConfig) -> AzureOpenAI:\n    """Optional completion-style Azure OpenAI LLM for RAGAS paths that require it."""\n    if not config.model:\n        raise ValueError("RAGAS evaluator model deployment is required")\n    return AzureOpenAI(\n        azure_deployment=config.model,\n        api_key=_setting("AZURE_OPENAI_API_KEY"),\n        azure_endpoint=_setting("AZURE_OPENAI_ENDPOINT"),\n        api_version=_setting("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),\n        temperature=config.temperature,\n        timeout=config.timeout_seconds,\n        max_retries=config.max_retries,\n    )\n\n\ndef build_ragas_openai_embeddings(api_key: str | None = None) -> OpenAIEmbeddings:\n    """Direct OpenAI embeddings option for non-Azure evaluator configs."""\n    client = OpenAI(api_key=api_key)\n    return OpenAIEmbeddings(client=client)\n',
+    )
+
+    # -------------------------------------------------------------------------
+    # tests/app_retrieval/test_eval_config.py
+    # -------------------------------------------------------------------------
+    ensure(
+        BACKEND / "tests" / "app_retrieval" / "test_eval_config.py",
+        'from pathlib import Path\n\nimport pytest\n\nfrom app_retrieval.evaluation.config.eval_config import load_eval_config\n\n\ndef test_load_eval_config_parses_ragas_evaluator(tmp_path: Path):\n    config = tmp_path / "rag_eval.yaml"\n    config.write_text("""\nmetrics_spec_version: ngaip-415-ragas-v1\nevaluator:\n  framework: ragas\n  enabled: true\n  provider: azure_openai\n  model: eval-deployment\n  embeddings: embedding-deployment\n  temperature: 0\n""".strip(), encoding="utf-8")\n    loaded = load_eval_config(config)\n    assert loaded.metrics_spec_version == "ngaip-415-ragas-v1"\n    assert loaded.evaluator.enabled is True\n    assert loaded.evaluator.model == "eval-deployment"\n    assert loaded.evaluator.embeddings == "embedding-deployment"\n\n\ndef test_load_eval_config_rejects_non_ragas_framework(tmp_path: Path):\n    config = tmp_path / "rag_eval.yaml"\n    config.write_text("evaluator:\n  framework: other\n", encoding="utf-8")\n    with pytest.raises(ValueError, match="Unsupported evaluator framework"):\n        load_eval_config(config)\n',
     )
 
     # -------------------------------------------------------------------------
