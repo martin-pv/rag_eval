@@ -76,3 +76,6 @@ Tests should cover:
 ## Branching and Commit Behavior
 
 The runtime implementation should branch from `ragas-rag-evaluation` after `NGAIP-362`, `NGAIP-363`, and `NGAIP-415` are available. The transfer script still supports local repeatable use by bootstrapping from local `main-backup-for-mac-claude-repo-04-07-2026`, switching or creating `ngaip-364-citation-accuracy-metric`, applying files, and committing locally without pushing.
+## RAGAS-Primary Update
+
+`NGAIP-364` should configure citation accuracy through the shared RAGAS adapter using faithfulness/context metrics first. Asset-id precision, recall, and hallucination checks remain deterministic PrattWise supplements in the harness report.

@@ -42,20 +42,29 @@ Before pasting any template into the backend repo:
 
 ## High-Level Decision
 
-Use the `ragas` library as the primary evaluator framework for semantic RAG quality:
+Use the `ragas` library as the primary evaluator framework for semantic RAG quality. All RAG tickets should plug into the shared `NGAIP-363` RAGAS adapter rather than implementing separate metric engines:
 
 - Context relevance should use RAGAS context metrics.
 - Grounding should use RAGAS faithfulness/grounding metrics.
 - Response quality should use RAGAS answer correctness and answer relevancy metrics.
 - Testset creation should use the RAGAS testset generator to produce candidate questions, answers, and references from approved source documents loaded from the existing LanceDB vector store when possible.
 
-Keep deterministic PrattWise-specific checks where RAGAS does not know enough about backend metadata:
+Keep deterministic PrattWise-specific checks only as supplemental diagnostics where RAGAS does not know enough about backend metadata:
 
 - Gold dataset schema validation.
 - Source `asset_id` matching.
 - Citation precision and recall.
 - Hallucinated citation detection.
 - Token-overlap diagnostics for cheap CI smoke tests and original acceptance-criteria compatibility.
+
+### RAGAS-Primary Ticket Ownership
+
+- `NGAIP-362`: RAGAS `TestsetGenerator` creates candidate gold rows from LanceDB/LangChain documents; Pydantic only validates reviewed rows.
+- `NGAIP-363`: shared `ragas_adapter.py` builds RAGAS datasets, metrics, and runs `ragas.evaluate()` by default.
+- `NGAIP-364`: citation accuracy maps to RAGAS faithfulness/context metrics first; source-id checks are deterministic supplements.
+- `NGAIP-365`: context relevancy maps to RAGAS context precision/recall/relevancy first; token overlap is diagnostic.
+- `NGAIP-366`: response accuracy maps to RAGAS answer correctness, answer/response relevancy, and faithfulness first; human annotation is calibration.
+- `NGAIP-415`: report/schema success criteria must label RAGAS scores as primary and deterministic checks as supplements.
 
 ## Why RAGAS
 

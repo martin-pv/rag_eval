@@ -103,3 +103,6 @@ These tests validate the contract, not metric correctness. Metric correctness be
 ## Branching and Commit Behavior
 
 The runtime implementation should branch from the shared `ragas-rag-evaluation` parent after `NGAIP-362` and `NGAIP-363` are in place. The transfer script still supports repeatable local use by bootstrapping from local `main-backup-for-mac-claude-repo-04-07-2026`, switching or creating `ngaip-415-metrics-success-criteria`, applying files, and committing locally without pushing.
+## RAGAS-Primary Update
+
+`NGAIP-415` success criteria should describe RAGAS metrics as the primary contract for retrieval, citation grounding, and response quality. Deterministic PrattWise checks are retained as supplemental diagnostics for metadata/source integrity and CI triage.

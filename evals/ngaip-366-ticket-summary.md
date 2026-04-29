@@ -91,3 +91,6 @@ Live RAGAS tests should be opt-in and require Azure OpenAI credentials.
 ## Branching and Commit Behavior
 
 The runtime implementation should branch from `ragas-rag-evaluation` after `NGAIP-362`, `NGAIP-363`, and `NGAIP-415` are available. The transfer script still supports local repeatable use by bootstrapping from local `main-backup-for-mac-claude-repo-04-07-2026`, switching or creating `ngaip-366-response-accuracy-metric`, applying files, and committing locally without pushing.
+## RAGAS-Primary Update
+
+`NGAIP-366` should use RAGAS answer correctness, answer/response relevancy, and faithfulness as the primary response accuracy metrics. Human annotation remains a calibration and adjudication path, not the default evaluator.

@@ -200,7 +200,7 @@ metrics:
     category: retrieval
     definition: >
       Fraction of the top-K retrieved chunks that overlap a gold span above the
-      token-overlap threshold tau. Measures how many retrieved chunks are relevant.
+      RAGAS context precision score for whether retrieved chunks are useful for answering the question. Token overlap is retained only as a CI diagnostic.
     formula: >
       precision@k = |{ c in retrieved[:k] : token_overlap(c.context, gold_spans) > tau }| / k
     parameters:
@@ -210,7 +210,7 @@ metrics:
       pass: "TBD"
       fail: "TBD"
       direction: higher_is_better
-    measurement: automatic
+    measurement: "RAGAS primary + deterministic diagnostic"
     owner_ticket: NGAIP-365
 
   - id: retrieval_recall_at_k
@@ -218,7 +218,7 @@ metrics:
     category: retrieval
     definition: >
       Fraction of gold spans that are covered by at least one of the top-K retrieved
-      chunks above token-overlap threshold tau. Measures how much gold content is found.
+      RAGAS context recall score for whether the retrieved context covers the reference answer. Token overlap is retained only as a CI diagnostic.
     formula: >
       recall@k = |{ s in gold_spans : any(token_overlap(c.context, s) > tau for c in retrieved[:k]) }|
                  / |gold_spans|
@@ -229,14 +229,14 @@ metrics:
       pass: "TBD"
       fail: "TBD"
       direction: higher_is_better
-    measurement: automatic
+    measurement: "RAGAS primary + deterministic diagnostic"
     owner_ticket: NGAIP-365
 
   - id: context_relevancy_at_k
     display_name: "Context Relevancy@K"
     category: retrieval
     definition: >
-      Token-level overlap@K: fraction of gold-span tokens that appear in the union of
+      RAGAS context relevancy/precision score over the retrieved context supplied to the answer. Diagnostic token overlap may also be reported for CI triage:
       top-K retrieved chunk tokens. Chosen formula: token overlap (not character IoU) —
       resolved in NGAIP-415 to match the POC implementation in NGAIP-412.
     formula: >
@@ -250,7 +250,7 @@ metrics:
       pass: "TBD"
       fail: "TBD"
       direction: higher_is_better
-    measurement: automatic
+    measurement: "RAGAS primary + deterministic diagnostic"
     owner_ticket: NGAIP-365
 
   - id: hit_rate_at_k
@@ -272,7 +272,7 @@ metrics:
       pass: "TBD"
       fail: "TBD"
       direction: higher_is_better
-    measurement: automatic
+    measurement: "RAGAS primary + deterministic diagnostic"
     owner_ticket: NGAIP-365
 
   # -------------------------------------------------------------------------
@@ -297,7 +297,7 @@ metrics:
       pass: "TBD"
       fail: "TBD"
       direction: higher_is_better
-    measurement: automatic
+    measurement: "RAGAS faithfulness primary + deterministic citation diagnostic"
     owner_ticket: NGAIP-364
     notes: >
       Citation shape from ChatResponse.sources — align parser with asset_id,
@@ -320,7 +320,7 @@ metrics:
       pass: "TBD"
       fail: "TBD"
       direction: higher_is_better
-    measurement: automatic
+    measurement: "RAGAS faithfulness primary + deterministic citation diagnostic"
     owner_ticket: NGAIP-364
 
   - id: hallucination_rate
@@ -343,7 +343,7 @@ metrics:
       pass: "TBD"
       fail: "TBD"
       direction: lower_is_better
-    measurement: automatic
+    measurement: "RAGAS faithfulness primary + deterministic citation diagnostic"
     owner_ticket: NGAIP-364
 
   # -------------------------------------------------------------------------
@@ -369,7 +369,7 @@ metrics:
       fail: "< 0.70"
       inter_rater_reliability_kappa: ">= 0.70 (Cohen's kappa, human calibration N >= 30)"
       direction: higher_is_better
-    measurement: "automatic (LLM-as-judge) + human calibration"
+    measurement: "RAGAS answer correctness/relevancy primary + human calibration"
     owner_ticket: NGAIP-366
 
   - id: faithfulness
@@ -386,7 +386,7 @@ metrics:
       pass: "TBD"
       fail: "TBD"
       direction: higher_is_better
-    measurement: "LLM-as-judge (grounding subscore)"
+    measurement: "RAGAS faithfulness primary"
     owner_ticket: NGAIP-366
 
   # -------------------------------------------------------------------------
@@ -754,7 +754,7 @@ Each K run is fully independent (no shared state between runs).
 |--------|-----------|---------|-----------|-------------|
 | **Retrieval Precision@K** | Fraction of top-K chunks overlapping a gold span above tau | `|{c in retrieved[:k] : overlap(c, gold) > tau}| / k` | TBD | Automatic |
 | **Retrieval Recall@K** | Fraction of gold spans covered by at least one top-K chunk | `|{s in gold : any(overlap(c, s) > tau for c in retrieved[:k])}| / |gold|` | TBD | Automatic |
-| **Context Relevancy@K** | Token-level overlap: fraction of gold tokens present in union of top-K chunks | `|tokens(union chunks[:k]) ∩ tokens(gold)| / |tokens(gold)|` | TBD | Automatic |
+| **Context Relevancy@K** | RAGAS context precision/recall over retrieved contexts; token overlap is diagnostic only | `ragas.evaluate(..., context metrics)` | TBD | RAGAS primary |
 | **Hit Rate@K** | Binary per-question: 1 if any top-K chunk hits gold, averaged across questions | `mean([1 if any overlap > tau else 0 for q in questions])` | TBD | Automatic |
 
 **Formula choice — Context Relevancy:** Token overlap selected (not character IoU). Resolved in NGAIP-415; consistent with NGAIP-412 POC implementation.
@@ -782,7 +782,7 @@ Each K run is fully independent (no shared state between runs).
 | Metric | Definition | Formula | Threshold | Measurement |
 |--------|-----------|---------|-----------|-------------|
 | **Response Accuracy** | LLM-as-judge composite: factuality + completeness + grounding averaged | `(factuality + completeness + grounding) / 3` (each 0/0.5/1) | >= 0.70 (target) | Auto + human calibration |
-| **Faithfulness** | Fraction of answer claims traceable to retrieved chunks | `|{claim : grounded(claim, chunks)}| / |claims|` | TBD | LLM-as-judge |
+| **Faithfulness** | RAGAS faithfulness score: answer claims grounded in retrieved chunks | `ragas.evaluate(..., Faithfulness)` | TBD | RAGAS primary |
 
 **Judge model:** Same Azure OpenAI deployment as production, temperature 0.0.
 **Prompt versioning:** Prompt hash stored in `report.json` per eval run.
@@ -854,7 +854,7 @@ SPEC_PATH = pathlib.Path(__file__).parents[3] / "app_retrieval/evaluation/config
 REQUIRED_METRIC_FIELDS = {"id", "display_name", "category", "definition", "formula", "threshold", "measurement", "owner_ticket"}
 VALID_CATEGORIES = {"retrieval", "citation", "generation", "operational"}
 VALID_OWNER_TICKETS = {"NGAIP-363", "NGAIP-364", "NGAIP-365", "NGAIP-366"}
-VALID_MEASUREMENT_PREFIXES = ("automatic", "human", "llm")
+VALID_MEASUREMENT_PREFIXES = ("automatic", "human", "llm", "ragas")
 EXPECTED_TOP_K_VALUES = [1, 3, 5]
 EXPECTED_TOP_K_SEED = 42
 EXPECTED_METRIC_IDS = {

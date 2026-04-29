@@ -108,3 +108,6 @@ Live RAGAS/model tests should be opt-in and skipped unless credentials and appro
 ## Branching and Commit Behavior
 
 The runtime implementation should branch from the shared `ragas-rag-evaluation` parent. The transfer script still supports repeatable local use by bootstrapping from local `main-backup-for-mac-claude-repo-04-07-2026`, switching or creating `ngaip-363-rag-evaluation-harness`, applying files, removing obsolete split harness files, force-adding generated tests with `git add -f`, and committing locally without pushing.
+## RAGAS-Primary Update
+
+`NGAIP-363` now owns `ragas_adapter.py`, conversion into RAGAS dataset records, construction of RAGAS metric objects, and the default `ragas.evaluate()` call. `harness.py` treats deterministic citation/source checks as report supplements, not replacement metrics.

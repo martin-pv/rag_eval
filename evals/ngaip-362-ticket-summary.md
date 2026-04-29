@@ -86,3 +86,6 @@ Only run live RAGAS generation after Azure OpenAI settings and approved source d
 ## Branching and Commit Behavior
 
 The runtime implementation should start from the parent `ragas-rag-evaluation` branch when available. The transfer script still bootstraps from local `main-backup-for-mac-claude-repo-04-07-2026` for repeatable transfer use, creates or switches to `ngaip-362-corpus-gold-dataset`, writes generated files, and makes a local commit without pushing.
+## RAGAS-Primary Update
+
+`NGAIP-362` now treats RAGAS `TestsetGenerator` as the primary way to bootstrap candidate gold rows. Pydantic remains only for schema validation and promotion safety. Generated rows use RAGAS-native fields (`user_input`, `reference`, `retrieved_contexts`) plus PrattWise source metadata.
