@@ -29,3 +29,37 @@ Run from the backend repo root. Every script branches from `main`, writes ticket
 - `ngaip-365-transfer-v2.py` - context relevancy metric using RAGAS context metrics.
 - `ngaip-364-transfer-v2.py` - citation accuracy using faithfulness plus async discrete citation judgment.
 - `ngaip-366-transfer-v2.py` - response accuracy using answer correctness/relevancy plus faithfulness.
+
+## Running on Windows
+
+These scripts are written for the Windows runtime where Pratt-Backend lives. They have no shell-isms, no `~`, no `os.path.join` traps — `subprocess.run` always uses list arguments (no `shell=True`), and `Path` lets forward-slash strings work because pathlib normalizes separators.
+
+**Two Windows-specific things the scripts already handle for you:**
+
+1. **LF line endings on generated files.** Python's text mode on Windows translates `\n` to `\r\n` when writing. The shared `write()` helper in every v2 transfer script uses `target.write_bytes(content.encode("utf-8"))` instead of `write_text`, so the generated `.py` modules and `sample_gold.jsonl` keep `LF` regardless of platform. The JSONL append in `gold_dataset.py` uses `Path.open("a", encoding="utf-8", newline="\n")` for the same reason. This keeps git diffs clean across platforms; you do not need `core.autocrlf` set explicitly.
+2. **Python launcher.** The scripts shell out via `sys.executable`, so the same interpreter that runs the transfer script is used for `pytest`. Invoke them with whichever launcher you have on PATH:
+
+   ```bat
+   py -3 evals\eval_v2\ngaip-363-transfer-v2.py
+   :: or
+   python evals\eval_v2\ngaip-363-transfer-v2.py
+   ```
+
+**Prerequisites on the runtime machine:**
+
+- Git for Windows installed and on PATH (the scripts call `git switch`, which needs git ≥ 2.23 — Git for Windows ships ≥ 2.40).
+- `pytest` available in the same environment as `sys.executable`. If you use `uv`, the scripts assume `uv sync --extra dev` (or your repo's equivalent) has put pytest into `.venv\Scripts`.
+- `BACKEND = Path.cwd()` — run each script from the Pratt-Backend repo root, not from the `eval_v2` directory. Example flow:
+
+   ```bat
+   cd C:\path\to\Pratt-Backend
+   git switch main
+   py -3 path\to\rag_eval\eval_v2\ngaip-362-transfer-v2.py
+   :: 362 creates ngaip-362-corpus-gold-dataset-v2 branch, writes files, runs pytest, commits locally
+   git switch main
+   git merge --no-ff ngaip-362-corpus-gold-dataset-v2
+   py -3 path\to\rag_eval\eval_v2\ngaip-363-transfer-v2.py
+   :: ...repeat for 364, 365, 366, 412, 415
+   ```
+
+**Optional but recommended:** add `* text=auto eol=lf` to the backend repo's `.gitattributes` so that any contributor on a different platform (or a misconfigured `core.autocrlf=true` user) doesn't accidentally re-introduce CRLF into the evaluation files. The transfer scripts already write LF, so this is belt-and-suspenders.

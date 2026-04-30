@@ -22,7 +22,9 @@ def prepare_branch(branch: str) -> None:
 def write(path: str, content: str) -> Path:
     target = BACKEND / path
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content, encoding="utf-8")
+    # Use write_bytes to force LF line endings on Windows (text mode would
+    # translate "\n" -> "\r\n", contaminating generated .py and .jsonl files).
+    target.write_bytes(content.encode("utf-8"))
     print(f"[write] {target.relative_to(BACKEND)}")
     return target
 
