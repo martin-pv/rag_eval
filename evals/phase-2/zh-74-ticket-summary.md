@@ -42,7 +42,7 @@ On macOS/Linux:
 
 ```bash
 cd /path/to/ENCHS-PW-GenAI-Backend
-python3 /path/to/rag_eval/evals/zh-74-transfer.py
+python3 /path/to/rag_eval/evals/phase-2/zh-74-transfer.py
 ```
 
 
