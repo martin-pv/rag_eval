@@ -63,3 +63,18 @@ These scripts are written for the Windows runtime where Pratt-Backend lives. The
    ```
 
 **Optional but recommended:** add `* text=auto eol=lf` to the backend repo's `.gitattributes` so that any contributor on a different platform (or a misconfigured `core.autocrlf=true` user) doesn't accidentally re-introduce CRLF into the evaluation files. The transfer scripts already write LF, so this is belt-and-suspenders.
+
+## Server entry point (ASGI / uvicorn)
+
+The Pratt-Backend is async (Django Channels), so the API server runs under **uvicorn**, not `manage.py runserver`. The canonical local command is:
+
+```bat
+uvicorn app.wsgi:application --lifespan --host=0.0.0.0 --port=8000 --workers 1
+```
+
+Implications for the v2 evaluation flow:
+
+- **The transfer scripts and generated pytest suites do _not_ require the API server to be running.** They import the harness, factory, and metrics directly inside the test process and call `cache.aget("MODELHUB_TOKEN", ...)` against the in-process Django cache.
+- **The ModelHub token refresh task (`app_background.background_tasks.modelhub.periodic_modelhub_processor`) only runs when the ASGI app boots.** If you need a fresh token in the cache for a long-running RAGAS evaluation against live ModelHub, start uvicorn first; otherwise the v2 factory will return `None` from `aget("MODELHUB_TOKEN")` and you must seed the cache yourself in the test (or pass `provider="openai"` / `provider="azure_openai"` and use a static API key).
+- **`--workers 1` is the recommended setting for evaluation runs** because LanceDB and Django's in-process cache are per-process. With multiple workers each worker has its own cache and its own ModelHub token, which is fine for serving traffic but wastes mints during evaluation.
+- **Migrations, management commands, and `pytest` still go through `manage.py`** — uvicorn only replaces the long-lived HTTP server. So `python manage.py migrate`, `python manage.py create_doc_builder_assistant`, and `python -m pytest` all keep working unchanged.

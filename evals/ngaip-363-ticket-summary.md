@@ -6,7 +6,7 @@ NGAIP-363 builds the reusable Django-native harness that runs RAG evaluations ag
 
 ## Runbook Decision
 
-The harness should run inside the backend process instead of requiring a web server. Normal Django tests and evaluation commands should use Django settings, models, and retrieval helpers directly. Start `runserver` only for true HTTP end-to-end tests.
+The harness should run inside the backend process instead of requiring a web server. Normal Django tests and evaluation commands should use Django settings, models, and retrieval helpers directly. Start the API server (ASGI via `uvicorn app.wsgi:application --lifespan --host=0.0.0.0 --port=8000 --workers 1`) only for true HTTP end-to-end tests; `manage.py runserver` is **not** the entry point on this backend because the app is async (Django Channels).
 
 RAGAS is the primary semantic evaluator framework, while the harness keeps PrattWise-specific deterministic adapters for metadata that RAGAS cannot infer.
 

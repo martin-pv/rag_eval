@@ -175,7 +175,19 @@ The backend already has `pytest.ini` with:
 DJANGO_SETTINGS_MODULE = app.settings
 ```
 
-Normal Django tests do not require `python manage.py runserver`. Start the server only for true HTTP end-to-end tests that call `localhost`.
+Normal Django tests do not require the API server to be running. The harness imports Django settings, models, and retrieval helpers directly inside the test process. Start the server only for true HTTP end-to-end tests that hit `localhost`.
+
+The backend is **ASGI (async)**, so the server is started with `uvicorn`, not `manage.py runserver`. The canonical command is:
+
+```bat
+uvicorn app.wsgi:application --lifespan --host=0.0.0.0 --port=8000 --workers 1
+```
+
+Notes:
+
+- Despite the module name `app.wsgi`, the callable is an ASGI application (Django Channels). Uvicorn loads it directly; do not switch to `daphne` unless you also remove `--lifespan`.
+- `--workers 1` is the recommended setting for RAG evaluation runs because LanceDB and the in-process Django cache (where `MODELHUB_TOKEN` is stored) are per-process. Multi-worker deployments need a shared cache backend, which is out of scope for evaluation.
+- `manage.py` still works for **migrations** (`migrate`, `makemigrations`), **shell access** (`shell`), **management commands** (e.g. ZH-73's `create_doc_builder_assistant`), and `pytest`. It is only the long-lived HTTP server that goes through uvicorn.
 
 ## RAGAS Testset Generator
 

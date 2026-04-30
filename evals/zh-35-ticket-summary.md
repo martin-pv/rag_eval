@@ -53,10 +53,16 @@ uv sync --group dev
 uv run python manage.py check
 ```
 
-Manual API smoke test after configuring a valid API key:
+Manual API smoke test after configuring a valid API key. The backend is async (ASGI), so start it with `uvicorn` — not `manage.py runserver`:
 
 ```cmd
-curl -X POST http://localhost:8000/api/users/register-genai/ -H "Content-Type: application/json" -H "Authorization: Api-Key <token>" -d "{"user_id":"sample.user"}"
+uvicorn app.wsgi:application --lifespan --host=0.0.0.0 --port=8000 --workers 1
+```
+
+Then in another shell:
+
+```cmd
+curl -X POST http://localhost:8000/api/users/register-genai/ -H "Content-Type: application/json" -H "Authorization: Api-Key <token>" -d "{\"user_id\":\"sample.user\"}"
 ```
 
 Expected response:
