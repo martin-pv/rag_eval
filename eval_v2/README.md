@@ -10,7 +10,10 @@ These are second-pass transfer scripts for the NGAIP RAG evaluation tickets. The
 
 ## Backend integration
 
-- `ngaip-363-transfer-v2.py` ships a ModelHub-aware `ragas_factory_v2.py`: `EvaluatorModelConfig.provider` accepts `openai`, `azure_openai`, or `modelhub_azure_openai`. The `modelhub_azure_openai` path mints a bearer token via `client_credentials` and adds `Authorization: Bearer …`, `api-key`, and `Ocp-Apim-Subscription-Key` headers on the `AsyncOpenAI` client. Settings come from `app.settings_intellisense.settings` first, then env vars.
+- `ngaip-363-transfer-v2.py` ships a ModelHub-aware `ragas_factory_v2.py`: `EvaluatorModelConfig.provider` accepts `openai`, `azure_openai`, or `modelhub_azure_openai`. The `modelhub_azure_openai` path **reuses the existing PrattWise plumbing** instead of duplicating it:
+  - **Token mint** — already handled by `app_background.background_tasks.modelhub.periodic_modelhub_processor` (started in `app_background/apps.py`). It performs the `client_credentials` POST to `MODELHUB_TOKEN_ENDPOINT` every ~10–15 minutes and stores the result in Django's cache as `MODELHUB_TOKEN`.
+  - **Token consume** — the v2 factory calls `await cache.aget("MODELHUB_TOKEN", None)` (same call pattern as `app_chatbot/utils.py`, `app_chatbot/views/chatstream.py`, `app_retrieval/api_lancedb.py`, and `app_core/utils.py`) and assembles `Authorization: Bearer …` + `api-key` + `Ocp-Apim-Subscription-Key` exactly like `OpenAIStreamGenerator` does. No second cache, no second mint.
+  - Settings come from `app.settings_intellisense.settings` first, then env vars (`OPENAI_API_LLM_KEY`, `OPENAI_API_LLM_ENDPOINT`).
 - `ngaip-362-transfer-v2.py` writes `app_retrieval/evaluation/lancedb_loader.py`. `load_lancedb_documents(db_path, table_name)` returns `list[langchain_core.documents.Document]`, so testset generation reads from the existing PrattWise LanceDB vector store rather than a JSONL fixture.
 - All v2 scripts touch the parent `app_retrieval/__init__.py` chain so pytest collection works on a clean clone.
 

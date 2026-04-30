@@ -719,13 +719,18 @@ evaluator:
   max_retries: 2
 ```
 
-If the runtime uses Pratt ModelHub as the AI gateway, keep RAGAS wired through the same factory but set `provider: modelhub_azure_openai`. The teammate screenshots show ModelHub minting a bearer token with `client_credentials`, then calling an Azure/OpenAI-compatible chat completions endpoint with:
+If the runtime uses Pratt ModelHub as the AI gateway, keep RAGAS wired through the same factory but set `provider: modelhub_azure_openai`. **Do not re-implement token minting in the evaluator.** The backend already runs that loop:
 
-- `Authorization: Bearer <modelhub token>`
-- `api-key: <OPENAI_API_LLM_KEY>`
-- `Ocp-Apim-Subscription-Key: <OPENAI_API_LLM_KEY>`
+- `backend/app_background/background_tasks/modelhub.py::periodic_modelhub_processor()` is started at boot from `app_background/apps.py`. It performs the `client_credentials` POST to `MODELHUB_TOKEN_ENDPOINT` every ~10–15 minutes and writes the result to Django's cache as `MODELHUB_TOKEN`.
+- Every existing LLM consumer reads the token via `await cache.aget("MODELHUB_TOKEN", None)` — see `app_chatbot/utils.py::OpenAIStreamGenerator.acreate`, `app_chatbot/views/chatstream.py:388`, `app_retrieval/api_lancedb.py:65`, `app_core/utils.py:82,92`.
 
-ModelHub still provides an OpenAI-compatible model to LangChain/RAGAS; it should be a provider option in `NGAIP-363`, not a separate metric implementation.
+The RAGAS factory should mirror that pattern exactly. The headers placed on the LangChain/`AsyncOpenAI` client are:
+
+- `Authorization: Bearer <cache.aget("MODELHUB_TOKEN")>`
+- `api-key: <settings.OPENAI_API_LLM_KEY>`
+- `Ocp-Apim-Subscription-Key: <settings.OPENAI_API_LLM_KEY>`
+
+ModelHub still provides an OpenAI-compatible model to LangChain/RAGAS; it should be a provider option in `NGAIP-363`, not a separate metric implementation, and not a duplicated token loop.
 
 Recommended behavior:
 
@@ -773,11 +778,9 @@ class RagasEvaluatorConfig:
     temperature: float = 0
     timeout_seconds: int = 120
     max_retries: int = 2
-    # Optional when provider == "modelhub_azure_openai".
-    modelhub_token_endpoint: str | None = None
-    modelhub_client_id: str | None = None
-    modelhub_client_secret: str | None = None
-    modelhub_scope: str | None = None
+    # ModelHub credentials (endpoint/client_id/secret/scope) already live in
+    # app.settings as MODELHUB_TOKEN_*; no need to duplicate here. The factory
+    # reads the cached token via `await cache.aget("MODELHUB_TOKEN", None)`.
     llm_endpoint: str | None = None
     llm_api_version: str | None = None
     llm_api_key: str | None = None
@@ -889,7 +892,7 @@ Import note:
 - The class name is `AzureOpenAI`, with capital `A`, `O`, `AI`.
 - Use `AzureChatOpenAI` when the RAGAS metric or judge path expects a chat model.
 - Keep both options centralized in `app_retrieval/evaluation/ragas_factory.py`.
-- If `provider` is `modelhub_azure_openai`, the factory should fetch/cache the ModelHub token and pass ModelHub/APIM headers through the LangChain OpenAI client configuration.
+- If `provider` is `modelhub_azure_openai`, the factory should **read** the ModelHub token from Django's cache (`await cache.aget("MODELHUB_TOKEN", None)`) — populated by `app_background.background_tasks.modelhub.periodic_modelhub_processor` — and pass ModelHub/APIM headers through the LangChain OpenAI client. **Do not mint or cache the token again** in the evaluator path.
 
 ### Direct RAGAS OpenAI Embeddings Option
 
