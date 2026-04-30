@@ -55,6 +55,8 @@ TESTS = 'from app_retrieval.evaluation.poc_async_ragas_eval import run_poc_sync\
 
 def main() -> None:
     prepare_branch(BRANCH)
+    touch("app_retrieval/__init__.py")
+    touch("app_retrieval/evaluation/__init__.py")
     touch("app_retrieval/evaluation/__init__.py")
     touch("tests/app_retrieval/__init__.py")
     path = "app_retrieval/evaluation/poc_async_ragas_eval.py"
@@ -62,7 +64,7 @@ def main() -> None:
     write(path, POC)
     write(test, TESTS)
     run_pytest([test])
-    commit([path, "app_retrieval/evaluation/__init__.py", "tests/app_retrieval/__init__.py"], [test], COMMIT_MESSAGE)
+    commit([path, "app_retrieval/evaluation/__init__.py", "tests/app_retrieval/__init__.py", "app_retrieval/__init__.py", "app_retrieval/evaluation/__init__.py"], [test], COMMIT_MESSAGE)
 
 if __name__ == "__main__":
     main()
