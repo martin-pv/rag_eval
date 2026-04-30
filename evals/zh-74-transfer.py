@@ -174,6 +174,43 @@ def main():
         print("[zh-74] ERROR: Django shell exited with non-zero status.")
         sys.exit(result.returncode)
 
+    # -----------------------------------------------------------------------
+    # 3. Write smoke test for the embedded fixture, run pytest, and commit
+    # -----------------------------------------------------------------------
+    test_file = repo_root / "tests" / "app_chatbot" / "test_research_assistant_fixture.py"
+    test_content = '''\
+"""ZH-74 fixture smoke test (no Django setup needed)."""
+import json
+from pathlib import Path
+
+
+def test_research_assistant_fixture_parses_and_has_priority_order():
+    data = json.loads(Path("app_chatbot/fixtures/research_assistant.json").read_text(encoding="utf-8"))
+    assert len(data) == 1
+    fields = data[0]["fields"]
+    assert fields["name"] == "Research Assistant"
+    sys_prompt = fields["sys_prompt"]
+    assert "Research Priority Order" in sys_prompt
+    assert "SAM" in sys_prompt
+    assert "EKS" in sys_prompt
+'''
+    test_file.parent.mkdir(parents=True, exist_ok=True)
+    (repo_root / "tests" / "__init__.py").touch(exist_ok=True)
+    (test_file.parent / "__init__.py").touch(exist_ok=True)
+    test_file.write_text(test_content, encoding="utf-8")
+    print(f"[zh-74] Wrote: {test_file}")
+    subprocess.run([sys.executable, "-m", "pytest", str(test_file.relative_to(repo_root)), "-v"], check=True)
+
+    subprocess.run(["git", "add", str(fixture_path.relative_to(repo_root))], check=True)
+    subprocess.run(["git", "add", "-f", str(test_file.relative_to(repo_root))], check=True)
+    status = subprocess.run(["git", "status", "--short"], capture_output=True, text=True, check=True).stdout.strip()
+    if status:
+        subprocess.run(["git", "commit", "-m",
+                        "ZH-74: add Research Assistant fixture + smoke test"], check=True)
+        print("[zh-74] Committed locally")
+    else:
+        print("[zh-74] Nothing to commit (no changes)")
+
     print("")
     print("[zh-74] Complete.")
     print(

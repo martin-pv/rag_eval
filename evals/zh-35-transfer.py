@@ -163,12 +163,52 @@ def step_patch_urls():
     )
 
 
+TEST_REGISTER_GENAI_PY = '''\
+"""Tests for ZH-35 RegisterGenAIView (no DB, no DRF setup)."""
+from unittest.mock import MagicMock
+
+from app_users.views.register_genai import RegisterGenAIView
+
+
+def test_register_genai_returns_400_when_user_id_missing():
+    request = MagicMock()
+    request.data = {}
+    response = RegisterGenAIView().post(request)
+    assert response.status_code == 400
+    assert response.data == {"error": "user_id required"}
+
+
+def test_register_genai_returns_200_when_user_id_present():
+    request = MagicMock()
+    request.data = {"user_id": "u1"}
+    response = RegisterGenAIView().post(request)
+    assert response.status_code == 200
+    assert response.data == {"status": "provisioned", "user_id": "u1"}
+'''
+
+TEST_FILE = BACKEND / "tests" / "app_users" / "test_register_genai.py"
+
+
+def step_create_test():
+    """Write tests/app_users/test_register_genai.py."""
+    touch(BACKEND / "tests" / "__init__.py")
+    touch(BACKEND / "tests" / "app_users" / "__init__.py")
+    ensure(TEST_FILE, TEST_REGISTER_GENAI_PY)
+    print(f"[OK] created {TEST_FILE.relative_to(BACKEND)}")
+
+
+def step_run_pytest():
+    """Run generated ZH-35 tests before committing."""
+    subprocess.run([sys.executable, "-m", "pytest", str(TEST_FILE.relative_to(BACKEND)), "-v"], check=True)
+
+
 def step_commit():
-    """Stage and commit the changes."""
+    """Stage source changes, force-add generated tests, and commit."""
     git("add",
         str(BACKEND / "app_users" / "views" / "register_genai.py"),
         str(BACKEND / "app_users" / "urls.py"),
     )
+    git("add", "-f", str(TEST_FILE))
     git("commit", "-m", "ZH-35: add RegisterGenAIView registration endpoint (Step 3)")
     print("[OK] committed")
 
@@ -182,6 +222,8 @@ def main():
     step_branch()
     step_create_view()
     step_patch_urls()
+    step_create_test()
+    step_run_pytest()
     step_commit()
     print("\n[DONE] ZH-35 transfer complete.")
     print("  Next: verify on runtime machine, then open PR to main.")

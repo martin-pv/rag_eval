@@ -93,6 +93,51 @@ else:
     print("[zh-61] Patched: temperature clamp applied after get_default_data")
 
 # ---------------------------------------------------------------------------
+# Patch-landed regression test (verifies the two anchored hunks reached the file)
+# ---------------------------------------------------------------------------
+
+TEST_FILE = REPO_ROOT / "tests" / "app_chatbot" / "test_temperature_patch.py"
+TEST_CONTENT = '''\
+"""ZH-61 patch-landed smoke test.
+
+These tests verify that the two anchored hunks landed in chatstream.py.
+They are deliberately string-level checks rather than full DRF integration
+tests because the patches sit inside an async streaming view that would
+require >80% of the world to be mocked to exercise.
+"""
+from pathlib import Path
+
+
+CHATSTREAM = Path("app_chatbot/views/chatstream.py").read_text(encoding="utf-8")
+
+
+def test_chatstream_parses_temperature_from_request():
+    assert 'raw_temp = request.data.get("temperature", None)' in CHATSTREAM
+
+
+def test_chatstream_clamps_temperature_into_data_dict():
+    assert 'data["temperature"] = max(0.0, min(2.0, temperature))' in CHATSTREAM
+'''
+
+TEST_FILE.parent.mkdir(parents=True, exist_ok=True)
+(REPO_ROOT / "tests" / "__init__.py").touch(exist_ok=True)
+(TEST_FILE.parent / "__init__.py").touch(exist_ok=True)
+TEST_FILE.write_text(TEST_CONTENT, encoding="utf-8")
+print(f"[zh-61] Wrote: {TEST_FILE}")
+
+subprocess.run([sys.executable, "-m", "pytest", str(TEST_FILE.relative_to(REPO_ROOT)), "-v"], check=True)
+
+subprocess.run(["git", "add", str(TARGET.relative_to(REPO_ROOT))], check=True)
+subprocess.run(["git", "add", "-f", str(TEST_FILE.relative_to(REPO_ROOT))], check=True)
+_status = subprocess.run(["git", "status", "--short"], capture_output=True, text=True, check=True).stdout.strip()
+if _status:
+    subprocess.run(["git", "commit", "-m",
+                    "ZH-61: accept optional temperature on /streaming_response/"], check=True)
+    print("[zh-61] Committed locally")
+else:
+    print("[zh-61] Nothing to commit (no changes)")
+
+# ---------------------------------------------------------------------------
 # Done
 # ---------------------------------------------------------------------------
 
