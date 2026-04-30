@@ -101,6 +101,32 @@ def test_unknown_origin_blocked(client):
         "https://evil.example.com",
         "*",
     ), "Unknown origin should not be allowed by CORS policy"
+
+
+# String-level checks (no Django setup needed) — confirm the settings patch landed.
+
+def test_settings_py_includes_autosam_origin():
+    from pathlib import Path
+    src = Path("app/settings.py").read_text(encoding="utf-8")
+    assert "https://autosam.prattwhitney.com" in src, (
+        "ZH-63 patch must add the AutoSAM prod origin to settings.py"
+    )
+
+
+def test_settings_py_has_cors_origin_collection():
+    from pathlib import Path
+    src = Path("app/settings.py").read_text(encoding="utf-8")
+    assert "CORS_ALLOWED_ORIGINS" in src or "CORS_ALLOWED_ORIGIN_REGEXES" in src, (
+        "settings.py must declare a CORS allow-list (origins or regex variant)"
+    )
+
+
+def test_cors_test_file_uses_options_method_for_preflight():
+    """Smoke check: our generated regression tests use OPTIONS preflight, not GET."""
+    from pathlib import Path
+    src = Path("tests/test_cors.py").read_text(encoding="utf-8")
+    assert "client.options(" in src
+    assert "HTTP_ACCESS_CONTROL_REQUEST_METHOD" in src
 '''
 
 

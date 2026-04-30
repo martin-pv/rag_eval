@@ -117,6 +117,25 @@ def test_chatstream_parses_temperature_from_request():
 
 def test_chatstream_clamps_temperature_into_data_dict():
     assert 'data["temperature"] = max(0.0, min(2.0, temperature))' in CHATSTREAM
+
+
+def test_chatstream_uses_float_conversion_on_temperature():
+    assert "temperature = float(raw_temp)" in CHATSTREAM
+
+
+def test_chatstream_handles_invalid_temperature_types_gracefully():
+    # TypeError/ValueError fallback prevents 500s on bad client input (e.g. "hot", null, []).
+    assert "except (TypeError, ValueError):" in CHATSTREAM
+
+
+def test_chatstream_clamp_skipped_when_no_temperature_supplied():
+    # The clamp must be guarded so default-temperature requests stay unchanged.
+    assert "if temperature is not None:" in CHATSTREAM
+
+
+def test_chatstream_temperature_default_is_none():
+    # request.data.get("temperature", None) — explicit None default keeps semantics clear.
+    assert 'request.data.get("temperature", None)' in CHATSTREAM
 '''
 
 TEST_FILE.parent.mkdir(parents=True, exist_ok=True)

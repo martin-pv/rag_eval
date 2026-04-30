@@ -193,6 +193,45 @@ def test_research_assistant_fixture_parses_and_has_priority_order():
     assert "Research Priority Order" in sys_prompt
     assert "SAM" in sys_prompt
     assert "EKS" in sys_prompt
+
+
+def test_research_assistant_fixture_targets_correct_django_model():
+    data = json.loads(Path("app_chatbot/fixtures/research_assistant.json").read_text(encoding="utf-8"))
+    assert data[0]["model"] == "app_chatbot.chatassistant"
+    assert data[0]["fields"]["default_group"] == 0
+    assert data[0]["fields"]["user"] is None
+
+
+def test_research_assistant_priority_order_is_explicitly_numbered():
+    data = json.loads(Path("app_chatbot/fixtures/research_assistant.json").read_text(encoding="utf-8"))
+    sys_prompt = data[0]["fields"]["sys_prompt"]
+    # The three-tier source priority must be numbered so the LLM treats it as ordered.
+    assert "1." in sys_prompt and "2." in sys_prompt and "3." in sys_prompt
+    assert "last resort" in sys_prompt.lower(), "Email substantiation must be marked as last resort"
+
+
+def test_research_assistant_references_hybrid_retrieval_strategy():
+    # ZH-74 must align with ZH-62 hybrid retrieval so the assistant routes queries correctly.
+    data = json.loads(Path("app_chatbot/fixtures/research_assistant.json").read_text(encoding="utf-8"))
+    sys_prompt = data[0]["fields"]["sys_prompt"]
+    assert "keyword search" in sys_prompt.lower()
+    assert "semantic search" in sys_prompt.lower()
+    assert "ZH-62" in sys_prompt or "hybrid" in sys_prompt.lower()
+
+
+def test_research_assistant_has_citation_style_guidance():
+    # Engineering accuracy depends on traceable citations; the prompt must specify format.
+    data = json.loads(Path("app_chatbot/fixtures/research_assistant.json").read_text(encoding="utf-8"))
+    sys_prompt = data[0]["fields"]["sys_prompt"]
+    assert "Citation Style" in sys_prompt or "cite" in sys_prompt.lower()
+    assert "Section" in sys_prompt and "Page" in sys_prompt
+
+
+def test_research_assistant_scope_explicit_about_no_speculation():
+    # Engineering tickets require the assistant to refuse speculation outside retrieved context.
+    data = json.loads(Path("app_chatbot/fixtures/research_assistant.json").read_text(encoding="utf-8"))
+    sys_prompt = data[0]["fields"]["sys_prompt"]
+    assert "speculate" in sys_prompt.lower() or "could not find a source" in sys_prompt.lower()
 '''
     test_file.parent.mkdir(parents=True, exist_ok=True)
     (repo_root / "tests" / "__init__.py").touch(exist_ok=True)

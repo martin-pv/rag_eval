@@ -124,6 +124,34 @@ def test_xclass_level_migration_has_correct_field_definition():
 def test_models_py_has_xclass_level_field():
     src = Path("app_retrieval/models.py").read_text(encoding="utf-8")
     assert "xclass_level = models.CharField(" in src
+
+
+def test_xclass_migration_uses_addfield_operation():
+    src = Path("app_retrieval/migrations/0028_folder_xclass_level.py").read_text(encoding="utf-8")
+    assert "migrations.AddField(" in src
+    assert 'model_name="folder"' in src
+
+
+def test_xclass_migration_field_is_charfield_with_help_text():
+    src = Path("app_retrieval/migrations/0028_folder_xclass_level.py").read_text(encoding="utf-8")
+    assert "models.CharField(" in src
+    assert "Export control classification level" in src
+    assert "EAR99" in src
+
+
+def test_models_xclass_field_has_help_text_and_optional_flags():
+    src = Path("app_retrieval/models.py").read_text(encoding="utf-8")
+    assert "max_length=50" in src
+    assert "blank=True" in src
+    assert "null=True" in src
+    assert "Export control classification level" in src
+
+
+def test_views_folders_exposes_xclass_level_in_response_dicts():
+    src = Path("app_retrieval/views/folders.py").read_text(encoding="utf-8")
+    # Patch adds it in 3 places: 2x existing folder dicts + 1x new_folder dict.
+    assert src.count('"xclass_level"') >= 2
+    assert 'getattr(folder, "xclass_level", None)' in src or 'getattr(new_folder, "xclass_level", None)' in src
 '''
 
 

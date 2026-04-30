@@ -90,6 +90,32 @@ def test_doc_builder_sys_prompt_is_non_empty_and_mentions_sam():
     src = Path("app_chatbot/management/commands/create_doc_builder_assistant.py").read_text(encoding="utf-8")
     assert "SYS_PROMPT" in src
     assert "SAM" in src
+
+
+def test_doc_builder_command_inherits_basecommand():
+    src = Path("app_chatbot/management/commands/create_doc_builder_assistant.py").read_text(encoding="utf-8")
+    assert "from django.core.management.base import BaseCommand" in src
+    assert "class Command(BaseCommand):" in src
+
+
+def test_doc_builder_handle_uses_update_or_create_for_idempotency():
+    # ZH-73 must be re-runnable on the runtime machine without duplicate rows.
+    src = Path("app_chatbot/management/commands/create_doc_builder_assistant.py").read_text(encoding="utf-8")
+    assert "ChatAssistant.objects.update_or_create(" in src
+    assert 'name=ASSISTANT_NAME' in src
+
+
+def test_doc_builder_extensions_default_empty():
+    # Extensions are explicitly empty per ticket — must be configured by admin/API later.
+    src = Path("app_chatbot/management/commands/create_doc_builder_assistant.py").read_text(encoding="utf-8")
+    assert '"extensions": []' in src
+
+
+def test_doc_builder_sys_prompt_mentions_structured_output_json():
+    # ZH-67 alignment: when structured_output=true, command must output structured JSON.
+    src = Path("app_chatbot/management/commands/create_doc_builder_assistant.py").read_text(encoding="utf-8")
+    assert "structured_output" in src
+    assert "document_patch" in src
 '''
 
 

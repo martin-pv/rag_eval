@@ -184,6 +184,37 @@ def test_register_genai_returns_200_when_user_id_present():
     response = RegisterGenAIView().post(request)
     assert response.status_code == 200
     assert response.data == {"status": "provisioned", "user_id": "u1"}
+
+
+def test_register_genai_uses_api_key_authentication():
+    from app_users.ping_auth import APIKeyAuthentication
+    assert APIKeyAuthentication in RegisterGenAIView.authentication_classes
+
+
+def test_register_genai_returns_drf_response_object():
+    from rest_framework.response import Response
+    request = MagicMock()
+    request.data = {"user_id": "u1"}
+    response = RegisterGenAIView().post(request)
+    assert isinstance(response, Response)
+
+
+def test_register_genai_response_status_uses_named_constants():
+    request = MagicMock()
+    request.data = {}
+    bad = RegisterGenAIView().post(request)
+    request.data = {"user_id": "x"}
+    ok = RegisterGenAIView().post(request)
+    assert bad.status_code == 400 and ok.status_code == 200
+    assert "error" in bad.data and "user_id" not in bad.data
+    assert ok.data["user_id"] == "x" and ok.data["status"] == "provisioned"
+
+
+def test_register_genai_module_documents_governance_gate():
+    import inspect
+    from app_users.views import register_genai
+    src = inspect.getsource(register_genai)
+    assert "Global Trade" in src and "Step 2" in src, "Governance gate note must remain in module docstring"
 '''
 
 TEST_FILE = BACKEND / "tests" / "app_users" / "test_register_genai.py"
