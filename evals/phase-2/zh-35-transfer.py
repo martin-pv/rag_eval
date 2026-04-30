@@ -3,8 +3,13 @@
 ZH-35 Transfer Script — GenAI Advanced Auth: Registration API
 
 Deploys:
-  - NEW  ENCHS-PW-GenAI-Backend/app_users/views/register_genai.py
+  - NEW  ENCHS-PW-GenAI-Backend/app_users/register_genai.py
   - EDIT ENCHS-PW-GenAI-Backend/app_users/urls.py  (add import + URL path)
+
+  Placement note: many Pratt backends use a single app_users/views.py module.
+  Then ``app_users.views`` is NOT a package, so ``from app_users.views.register_genai``
+  fails with "is not a package". The view lives at app root as register_genai.py
+  and urls import ``from app_users.register_genai import RegisterGenAIView``.
 
 Run from the root of the runtime repo checkout:
     python3 zh-35-transfer.py
@@ -56,7 +61,7 @@ BRANCH  = "zh-35-genai-auth"
 # ---------------------------------------------------------------------------
 
 REGISTER_GENAI_PY = '''\
-# app_users/views/register_genai.py
+# app_users/register_genai.py
 #
 # Registration endpoint for GenAI user provisioning (ZH-35).
 # Service-token authenticated via APIKeyAuthentication.
@@ -127,9 +132,22 @@ def step_branch():
     print(f"[OK] on branch {BRANCH}")
 
 
+def step_cleanup_stale_nested_module():
+    """Remove app_users/views/register_genai.py if a prior run created it.
+
+    When app_users/views.py exists, ``app_users.views`` is a module, not a package;
+    nested register_genai under a ``views/`` directory does not match that layout
+    and breaks imports. Delete the misleading file so only app_users/register_genai.py remains.
+    """
+    stale = BACKEND / "app_users" / "views" / "register_genai.py"
+    if stale.is_file():
+        stale.unlink()
+        print(f"[OK] removed stale {stale.relative_to(BACKEND)} (use app_users/register_genai.py instead)")
+
+
 def step_create_view():
-    """Write app_users/views/register_genai.py."""
-    dest = BACKEND / "app_users" / "views" / "register_genai.py"
+    """Write app_users/register_genai.py (beside views.py — avoids 'views is not a package')."""
+    dest = BACKEND / "app_users" / "register_genai.py"
     ensure(dest, REGISTER_GENAI_PY)
     print(f"[OK] created {dest.relative_to(BACKEND)}")
 
@@ -138,17 +156,28 @@ def step_patch_urls():
     """Add import + URL path to app_users/urls.py."""
     urls_path = BACKEND / "app_users" / "urls.py"
 
+    # 0. If a prior run used the broken nested path, rewrite the import.
+    _src0 = urls_path.read_text(encoding="utf-8")
+    _broken = "from app_users.views.register_genai import RegisterGenAIView"
+    _fixed = "from app_users.register_genai import RegisterGenAIView"
+    if _broken in _src0 and _fixed not in _src0:
+        urls_path.write_text(_src0.replace(_broken, _fixed, 1), encoding="utf-8")
+        print("[OK] urls.py — replaced broken app_users.views.register_genai import")
+
     # 1. Add the import after the last existing import block.
     #    Anchor on the closing of the existing imports / urlpatterns line.
-    patch(
-        urls_path,
-        old="urlpatterns = [",
-        new=(
-            "from app_users.views.register_genai import RegisterGenAIView\n\n"
-            "urlpatterns = ["
-        ),
-        label="urls.py — add RegisterGenAIView import",
-    )
+    if _fixed not in urls_path.read_text(encoding="utf-8"):
+        patch(
+            urls_path,
+            old="urlpatterns = [",
+            new=(
+                "from app_users.register_genai import RegisterGenAIView\n\n"
+                "urlpatterns = ["
+            ),
+            label="urls.py — add RegisterGenAIView import",
+        )
+    else:
+        print("[SKIP] urls.py — RegisterGenAIView import already present")
 
     # 2. Add the URL entry before the closing bracket.
     patch(
@@ -167,7 +196,7 @@ TEST_REGISTER_GENAI_PY = '''\
 """Tests for ZH-35 RegisterGenAIView (no DB, no DRF setup)."""
 from unittest.mock import MagicMock
 
-from app_users.views.register_genai import RegisterGenAIView
+from app_users.register_genai import RegisterGenAIView
 
 
 def test_register_genai_returns_400_when_user_id_missing():
@@ -212,7 +241,7 @@ def test_register_genai_response_status_uses_named_constants():
 
 def test_register_genai_module_documents_governance_gate():
     import inspect
-    from app_users.views import register_genai
+    from app_users import register_genai
     src = inspect.getsource(register_genai)
     assert "Global Trade" in src and "Step 2" in src, "Governance gate note must remain in module docstring"
 '''
@@ -236,7 +265,7 @@ def step_run_pytest():
 def step_commit():
     """Stage source changes, force-add generated tests, and commit."""
     git("add",
-        str(BACKEND / "app_users" / "views" / "register_genai.py"),
+        str(BACKEND / "app_users" / "register_genai.py"),
         str(BACKEND / "app_users" / "urls.py"),
     )
     git("add", "-f", str(TEST_FILE))
@@ -251,6 +280,7 @@ def main():
         sys.exit(1)
 
     step_branch()
+    step_cleanup_stale_nested_module()
     step_create_view()
     step_patch_urls()
     step_create_test()

@@ -8,6 +8,8 @@ ZenHub tickets in this phase:
 - `zh-73` – Document Builder management command
 - `zh-74` – Research Assistant fixture + system instructions
 
+**ZH-35:** `RegisterGenAIView` lives in `app_users/register_genai.py` and urls use `from app_users.register_genai import ...`. Do not use `app_users.views.register_genai` when the app already has `app_users/views.py` — Python then reports `app_users.views is not a package`.
+
 Each ticket has two files:
 
 | Transfer script | Ticket summary |
