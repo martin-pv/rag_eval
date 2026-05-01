@@ -19,6 +19,8 @@ These are second-pass transfer scripts for the NGAIP RAG evaluation tickets. The
 
 ## Scripts
 
+**Per-script docs (what each ticket writes, prerequisites, merge order, manual pytest):** see **[eval_v2/docs/README.md](./docs/README.md)** and the linked `NGAIP-*-v2.md` pages.
+
 Run from the backend repo root. Every script branches from `main`, writes ticket-scoped files, runs generated pytests, force-adds generated tests, and creates a local commit without pushing.
 
 - `sample_gold_v2.jsonl` - 50-row sanitized fixture used by the 362/363 v2 scripts.
@@ -48,7 +50,7 @@ These scripts are written for the Windows runtime where Pratt-Backend lives. The
 **Prerequisites on the runtime machine:**
 
 - Git for Windows installed and on PATH (the scripts call `git switch`, which needs git ≥ 2.23 — Git for Windows ships ≥ 2.40).
-- `pytest` available in the same environment as `sys.executable`. If you use `uv`, the scripts assume `uv sync --extra dev` (or your repo's equivalent) has put pytest into `.venv\Scripts`.
+- `pytest` available in the same environment as `sys.executable`. If you use `uv`, the scripts assume `uv sync --extra dev` (or your repo's equivalent) has put pytest into `.venv\Scripts`. Several transfer scripts call **`uv run pytest`** when `uv` is on `PATH` (see **docs/README.md**); others always use `python -m pytest` inside the script.
 - `BACKEND = Path.cwd()` — run each script from the Pratt-Backend repo root, not from the `eval_v2` directory. Example flow:
 
    ```bat
