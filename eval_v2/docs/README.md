@@ -4,7 +4,7 @@ These pages describe each **`ngaip-*-transfer-v2.py`** script: what it installs 
 
 ## Quick start (runtime machine)
 
-1. Use the **Pratt-Backend** repository root as the current working directory (`BACKEND = Path.cwd()` in every script).
+1. Use the **Pratt-Backend** repository root as the current working directory (`BACKEND = Path.cwd()` in every script). On **Windows**, use **`cd /d D:\path`** in **cmd** when changing drives.
 2. Ensure **Git** is on `PATH` (the scripts run `git switch`, `git add`, `git commit`).
 3. Install backend dev dependencies so **pytest** (and imports like `ragas`, `langchain_core`, `pydantic`, `datasets`) resolve — e.g. `uv sync --extra dev` or your team’s equivalent.
 4. Run a transfer script with the **same interpreter** you use for the backend (or use **`uv run python`** / **`uv run`** so the project venv is active).
@@ -17,11 +17,17 @@ git switch main
 uv run python /path/to/rag_eval/eval_v2/ngaip-362-transfer-v2.py
 ```
 
-Example (Windows — paths from [eval_v2 README](../README.md)):
+Example (Windows — **cmd**; paths from [eval_v2 README](../README.md)):
 
 ```bat
-cd C:\path\to\Pratt-Backend
+cd /d C:\path\to\Pratt-Backend
 git switch main
+uv run python C:\path\to\rag_eval\eval_v2\ngaip-362-transfer-v2.py
+```
+
+If you do not use `uv`, use `py -3` instead of `python` so the launcher matches your install:
+
+```bat
 py -3 C:\path\to\rag_eval\eval_v2\ngaip-362-transfer-v2.py
 ```
 

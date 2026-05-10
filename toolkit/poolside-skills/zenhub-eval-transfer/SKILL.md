@@ -14,7 +14,7 @@ description: Run ZenHub-style evaluation transfer scripts from rag_eval (evals/z
 
 1. **Assume `cwd` = Pratt-Backend root** unless the specific script documents a different layout (nested `backend/`).
 
-2. Prefer **`uv run python`** / **`uv run pytest`** when available; scripts may auto-select `uv` for pytest.
+2. Prefer **`uv run python`** / **`uv run pytest`** when available; on **Windows** without `uv`, use **`py -3`** (`py -3 -m pytest`). Scripts may auto-select `uv` for pytest.
 
 3. Generated tests are sometimes **gitignored** — scripts may use **`git add -f`** for test paths; match that pattern when committing manually.
 
@@ -22,5 +22,5 @@ description: Run ZenHub-style evaluation transfer scripts from rag_eval (evals/z
 
 ## Verification
 
-- Run the script from backend root, then **`uv run pytest`** on the generated test path printed by the script.
+- Run the script from backend root, then **`uv run pytest`** or **`py -3 -m pytest`** on the generated test path printed by the script.
 - Confirm branch and file paths match the ticket’s expected module layout.

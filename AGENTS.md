@@ -2,6 +2,8 @@
 
 This repository holds **evaluation and transfer tooling** (RAGAS, ZenHub-style scripts) for **PrattWise / Pratt-Backend**. It is **not** the Django backend; generated code is meant to be applied **into** the backend repo.
 
+**Primary runtime called out by the team:** **Windows** (Git for Windows, Python launcher, optional `uv`). Unix-style snippets below still work in **PowerShell** for many tools; prefer the **Windows** subsection when paths or shells differ.
+
 ## Working directory
 
 - **Transfer scripts** assume **`Path.cwd()` is the Pratt-Backend repository root** (the tree that contains `manage.py` / `app_retrieval`, etc.). Run them from there, not from `rag_eval/`.
@@ -11,7 +13,14 @@ This repository holds **evaluation and transfer tooling** (RAGAS, ZenHub-style s
   uv run python /path/to/rag_eval/eval_v2/ngaip-362-transfer-v2.py
   ```
 
-- **`rag_eval`** path can be a clone, worktree, or symlink — only the script path matters.
+- **`rag_eval`** path can be a clone, worktree, or **directory junction** (`mklink /J`) on Windows — only the script path matters.
+
+### Windows
+
+- Open **cmd** or **PowerShell**, `cd` to the backend root (example: `C:\work\Pratt-Backend`, not `C:\work\rag_eval`).
+- Prefer the **Python launcher**: `py -3` so you pick the same install as your venv. With **uv** installed: `uv run python C:\work\rag_eval\eval_v2\ngaip-362-transfer-v2.py` from the backend directory.
+- **Git for Windows** must be on `PATH` (`git switch`, `git commit`).
+- **Poolside / global skills** usually live under `%USERPROFILE%\.config\poolside\skills\` (see `toolkit/README.md` for copy commands).
 
 ## Layout
 
@@ -24,12 +33,12 @@ This repository holds **evaluation and transfer tooling** (RAGAS, ZenHub-style s
 
 ## Conventions
 
-- Prefer **`uv run python`** / **`uv run pytest`** when `uv` is available; several scripts fall back to `python -m pytest`.
+- Prefer **`uv run python`** / **`uv run pytest`** when `uv` is available; several scripts fall back to **`py -3 -m pytest`** or `python -m pytest` (`sys.executable` in the transfer script).
 - Do **not** commit API keys, tokens, or tenant-specific config. Use env / backend settings only.
 - Keep changes **ticket-scoped**; avoid unrelated refactors in generated backend files.
 - v2 **merge order** and per-ticket behavior: see `eval_v2/docs/README.md`.
 
 ## Poolside / IDE
 
-- Copy or symlink skills from `toolkit/poolside-skills/` into `~/.config/poolside/skills/` or `.poolside/skills/` (see `toolkit/POOLSIDE.md`).
+- Copy skills from `toolkit/poolside-skills/` into **`%USERPROFILE%\.config\poolside\skills\`** (Windows) or **`~/.config/poolside/skills/`** (Unix), or into **`.poolside\skills`** in the project (see `toolkit/POOLSIDE.md` and `toolkit/README.md`).
 - This file is the repo-level **`AGENTS.md`** for tools that read it (e.g. Poolside).

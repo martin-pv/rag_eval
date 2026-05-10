@@ -20,6 +20,8 @@ description: Apply NGAIP RAGAS v2 transfer scripts from rag_eval into Pratt-Back
    uv run python /path/to/rag_eval/eval_v2/ngaip-362-transfer-v2.py
    ```
 
+   **Windows (cmd, backend root):** `uv run python C:\work\rag_eval\eval_v2\ngaip-362-transfer-v2.py` or `py -3 C:\work\rag_eval\eval_v2\ngaip-362-transfer-v2.py`.
+
 3. **Do not move `sample_gold_v2.jsonl`** away from `eval_v2/` — scripts read it via `Path(__file__).with_name("sample_gold_v2.jsonl")`.
 
 4. Respect **merge order**: 362 → 363 → metrics (364–366) → 412 → 415. See `eval_v2/docs/README.md`.
@@ -28,5 +30,5 @@ description: Apply NGAIP RAGAS v2 transfer scripts from rag_eval into Pratt-Back
 
 ## Verification
 
-- Rerun the generated test module with `uv run pytest … -v` from the backend root.
+- Rerun the generated test module with `uv run pytest … -v` or `py -3 -m pytest … -v` from the backend root (**Windows**).
 - For behavior detail, open the matching `eval_v2/docs/NGAIP-*-v2.md` file.

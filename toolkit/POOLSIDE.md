@@ -2,9 +2,11 @@
 
 Poolside discovers skills in:
 
-- `~/.config/poolside/skills/<skill-name>/SKILL.md` (global)
-- `.poolside/skills/<skill-name>/SKILL.md` (project)
-- `.agents/skills/` (alternate)
+| Scope | Typical path (Windows) | Typical path (macOS / Linux) |
+|-------|------------------------|------------------------------|
+| Global | `%USERPROFILE%\.config\poolside\skills\<skill-name>\SKILL.md` | `~/.config/poolside/skills/<skill-name>/SKILL.md` |
+| Project | `.poolside\skills\<skill-name>\SKILL.md` | `.poolside/skills/<skill-name>/SKILL.md` |
+| Alternate | `.agents\skills\` | `.agents/skills/` |
 
 It also scans some **Agent Skills**–compatible locations used by other tools; see [Poolside Skills](https://docs.poolside.ai/skills).
 
@@ -14,18 +16,25 @@ It also scans some **Agent Skills**–compatible locations used by other tools; 
 
 2. In a session, type **`/skills`** and confirm **Global** or **Project** skills appear.
 
-3. For **local sandboxes**, prefer **`.poolside/skills/`** inside the project — user-level `~/.config/poolside/skills/` may not be mounted in the container ([Skills and sandboxes](https://docs.poolside.ai/skills#skills-and-sandboxes)).
+3. For **local sandboxes**, prefer **`.poolside/skills/`** (or **`.poolside\skills\`**) inside the project — user-level global skills may not be mounted in the container ([Skills and sandboxes](https://docs.poolside.ai/skills#skills-and-sandboxes)).
 
 ## AGENTS.md
 
-The **[`AGENTS.md`](../AGENTS.md)** at this repo’s root is picked up when Poolside’s workspace includes **`rag_eval`**. When the agent’s root is **only Pratt-Backend**, copy or symlink that file, or add a backend **`AGENTS.md`** that points here:
+The **[`AGENTS.md`](../AGENTS.md)** at this repo’s root is picked up when Poolside’s workspace includes **`rag_eval`**. When the agent’s root is **only Pratt-Backend**, copy that file into the backend root, or add a backend **`AGENTS.md`** that points here:
 
 ```markdown
 ## rag_eval
 
-Evaluation transfer scripts and skills live in `../rag_eval` (or your path). See that repo’s `AGENTS.md` and `toolkit/`.
+Evaluation transfer scripts and skills live in `C:\work\rag_eval` (or your path). See that repo’s `AGENTS.md` and `toolkit/`.
 ```
+
+On Windows you can duplicate the file (**copy**); a **directory junction** is optional if both repos sit under one parent (`mklink /J` — run **cmd as Administrator** if required).
 
 ## Personal preferences
 
-Cross-project Markdown prefs: **`~/.config/poolside/.poolside`** ([Agent instructions](https://docs.poolside.ai/agent-instructions)).
+Cross-project Markdown prefs:
+
+- **Windows:** `%USERPROFILE%\.config\poolside\.poolside`
+- **Unix:** `~/.config/poolside/.poolside`
+
+See [Agent instructions](https://docs.poolside.ai/agent-instructions).
