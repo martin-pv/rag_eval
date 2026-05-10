@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "name": "karpathy-guidelines",
+  "owner": "vechain",
+  "repo": "inspector-app",
+  "path": ".claude/skills/karpathy-guidelines",
+  "branch": "master",
+  "sha": "2fdb23243fcd6d5d8d6ee38b9a949cd46e7cbe60",
+  "source": "manual"
+}

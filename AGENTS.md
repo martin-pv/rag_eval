@@ -29,7 +29,7 @@ This repository holds **evaluation and transfer tooling** (RAGAS, ZenHub-style s
 | `eval_v2/` | NGAIP **v2** RAGAS transfer scripts + `sample_gold_v2.jsonl` + [docs](./eval_v2/docs/README.md) |
 | `evals/` | Ticket transfer scripts, runbooks, ZenHub (`zh-*`), NGAIP v1-style (`ngaip-*`), reference snippets |
 | `scripts/` | Sync / worktree helpers |
-| `toolkit/` | **Poolside skills**, workflow notes, copy-paste setup ([README](./toolkit/README.md)) |
+| `toolkit/` | **Poolside** layout + **[`poolside-skills/`](./toolkit/poolside-skills/)** (rag_eval) + **[`claude-skills/`](./toolkit/claude-skills/)** (bundled Claude skills) |
 
 ## Conventions
 
@@ -40,5 +40,5 @@ This repository holds **evaluation and transfer tooling** (RAGAS, ZenHub-style s
 
 ## Poolside / IDE
 
-- Copy skills from `toolkit/poolside-skills/` into **`%USERPROFILE%\.config\poolside\skills\`** (Windows) or **`~/.config/poolside/skills/`** (Unix), or into **`.poolside\skills`** in the project (see `toolkit/POOLSIDE.md` and `toolkit/README.md`).
+- Copy skills from **`toolkit/poolside-skills/`** and **`toolkit/claude-skills/`** into **`%USERPROFILE%\.config\poolside\skills\`** (Windows) or **`~/.config/poolside/skills/`** (Unix), or into **`.poolside\skills`** in the project (see **`toolkit/README.md`**). The **`claude-skills`** tree is a resolved snapshot from this laptop’s Claude install; see **`toolkit/claude-skills/README.md`** for the list and refresh instructions.
 - This file is the repo-level **`AGENTS.md`** for tools that read it (e.g. Poolside).
