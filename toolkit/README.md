@@ -6,7 +6,7 @@ Bundled **useful defaults** for humans and agents working across **`rag_eval`** 
 |------|---------|
 | [POOLSIDE.md](./POOLSIDE.md) | Install **skills** for Poolside (paths on Windows vs Unix) |
 | [WORKFLOW.md](./WORKFLOW.md) | Backend cwd, branches, testing, `py -3` / `uv` |
-| [poolside-skills/](./poolside-skills/) | **rag_eval–specific** `SKILL.md` folders (transfers, ZenHub) |
+| [poolside-skills/](./poolside-skills/) | **rag_eval–specific** skills: transfers, **import from `.claude`**, **RAG / RAGAS** — see [poolside-skills/README.md](./poolside-skills/README.md) |
 | [claude-skills/](./claude-skills/) | **23 bundled** skills from Claude (code review, MCP, GitHub, caveman, …) — see [claude-skills/README.md](./claude-skills/README.md) |
 
 ## Windows — copy skills (Poolside global)
@@ -68,4 +68,5 @@ cp -R /path/to/rag_eval/toolkit/claude-skills/* ~/.config/poolside/skills/
 ## Related
 
 - Root **[AGENTS.md](../AGENTS.md)** — repo-wide agent rules (Windows-first notes)  
+- **[poolside-skills/README.md](./poolside-skills/README.md)** — index of rag_eval-specific skills (transfers, RAGAS, import from `.claude`)  
 - **[claude-skills/README.md](./claude-skills/README.md)** — bundled Claude skills, refresh script, Poolside `name` = folder rule
